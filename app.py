@@ -1,45 +1,49 @@
 import streamlit as st
 import pandas as pd
 from nba_api.stats.endpoints import leaguedashplayerstats
-from nba_api.stats.static import teams
 
-st.set_page_config(page_title="NBA Smart Dashboard", layout="wide")
+st.set_page_config(page_title="NBA Last 5 Games", layout="wide")
 
-st.title("🏀 NBA Smart Dashboard v2.0")
-st.sidebar.header("Configuración de Análisis")
+st.title("🏀 Estadísticas: Últimos 5 Partidos")
 
-# Función para obtener datos (con caché para no saturar la API)
-@st.cache_data(ttl=3600)
-def get_nba_data():
-    stats = leaguedashplayerstats.LeagueDashPlayerStats(season='2025-26')
-    df = stats.get_data_frames()[0]
-    return df
+# 1. Función para obtener los últimos 5 juegos de todos los jugadores
+@st.cache_data(ttl=600)
+def get_last_5_stats():
+    # El parámetro 'last_n_games' es la clave aquí
+    stats = leaguedashplayerstats.LeagueDashPlayerStats(
+        season='2025-26',
+        last_n_games=5,
+        per_mode_detailed='PerGame'
+    )
+    return stats.get_data_frames()[0]
 
 try:
-    df_players = get_nba_data()
+    with st.spinner('Cargando datos de la NBA...'):
+        df = get_last_5_stats()
+
+    # 2. Selector de Equipo en la barra lateral
+    team_list = sorted(df['TEAM_ABBREVIATION'].unique())
+    selected_team = st.sidebar.selectbox("Selecciona un Equipo", team_list)
+
+    # 3. Filtrado y Limpieza
+    # Seleccionamos solo las columnas que nos interesan para que sea legible
+    cols_to_show = ['PLAYER_NAME', 'GP', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'FG_PCT', 'FG3_PCT']
+    df_team = df[df['TEAM_ABBREVIATION'] == selected_team][cols_to_show]
+
+    # Mostramos los resultados
+    st.subheader(f"Rendimiento de {selected_team} en sus últimos 5 encuentros")
     
-    # Filtros rápidos
-    team_list = sorted(df_players['TEAM_ABBREVIATION'].unique())
-    selected_team = st.sidebar.multiselect("Filtrar por Equipo", team_list)
+    # Formateo de porcentajes para que se vean bien (ej. 0.45 -> 45%)
+    df_team['FG_PCT'] = (df_team['FG_PCT'] * 100).map('{:.1f}%'.format)
+    df_team['FG3_PCT'] = (df_team['FG3_PCT'] * 100).map('{:.1f}%'.format)
 
-    if selected_team:
-        df_filtered = df_players[df_players['TEAM_ABBREVIATION'].isin(selected_team)]
-    else:
-        df_filtered = df_players
+    st.dataframe(
+        df_team.sort_values(by='PTS', ascending=False), 
+        use_container_width=True,
+        hide_index=True
+    )
 
-    # Tabs para organizar la info
-    tab1, tab2, tab3 = st.tabs(["📊 Estadísticas Proyectadas", "🎲 Análisis de Valor", "🚑 Reporte de Lesionados"])
-
-    with tab1:
-        st.subheader("Rendimiento por Jugador (Puntos, Rebotes, Asistencias)")
-        # Mostramos métricas clave: PTS, REB, AST, STL, BLK
-        st.dataframe(df_filtered[['PLAYER_NAME', 'TEAM_ABBREVIATION', 'PTS', 'REB', 'AST', 'STL', 'BLK']].sort_values(by='PTS', ascending=False))
-
-    with tab2:
-        st.info("Aquí calcularemos la desviación estándar y el Pace para encontrar ventajas.")
-
-    with tab3:
-        st.warning("No olvides cruzar estos datos con el reporte oficial de bajas antes de apostar.")
+    st.caption("Nota: Los datos muestran el promedio por partido durante los últimos 5 juegos disputados por cada jugador.")
 
 except Exception as e:
-    st.error(f"Error al conectar con la API de la NBA: {e}")
+    st.error(f"Hubo un problema al obtener los datos: {e}")
