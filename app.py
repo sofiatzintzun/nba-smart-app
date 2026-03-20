@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from nba_api.stats.static import players, teams
+from nba_api.stats.static import teams
 from nba_api.stats.endpoints import playergamelog, commonteamroster
 
 st.set_page_config(page_title="NBA Player Game Log", layout="wide")
 
-st.title("🏀 Historial de los Últimos 5 Partidos")
+st.title("🏀 Historial Detallado: Últimos 5 Partidos")
 
 # 1. Obtener todos los equipos para el selector
 @st.cache_data
@@ -33,34 +33,58 @@ selected_player_name = st.sidebar.selectbox("2. Selecciona un Jugador", player_n
 # 3. Obtener el ID del jugador seleccionado
 player_id = df_roster[df_roster['PLAYER'] == selected_player_name]['PLAYER_ID'].values[0]
 
-# 4. Obtener el Log de partidos
+# 4. Obtener el Log de partidos (Temporada actual)
 @st.cache_data(ttl=3600)
 def get_player_last_5(player_id):
+    # Traemos el log de la temporada 2025-26
     log = playergamelog.PlayerGameLog(player_id=player_id, season='2025-26')
     df_log = log.get_data_frames()[0]
-    return df_log.head(5) # Solo los últimos 5
+    return df_log.head(5) 
 
 try:
-    with st.spinner(f'Buscando partidos de {selected_player_name}...'):
+    with st.spinner(f'Buscando estadísticas de {selected_player_name}...'):
         df_last_5 = get_player_last_5(player_id)
 
     if not df_last_5.empty:
-        st.subheader(f"Últimos 5 juegos de {selected_player_name}")
+        st.subheader(f"Desempeño de {selected_player_name} (Últimos 5 juegos)")
         
-        # Seleccionamos columnas clave para el análisis
-        cols = ['GAME_DATE', 'MATCHUP', 'WL', 'MIN', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'FG_PCT']
-        df_display = df_last_5[cols].copy()
+        # Mapeo de columnas solicitadas:
+        # FGM: Tiros de campo anotados | FGA: Intentos de tiros de campo
+        # FG3M: Triples anotados | FG3A: Intentos de triples
+        # TOV: Pérdidas | PF: Faltas personales
+        cols_map = {
+            'GAME_DATE': 'Fecha',
+            'MATCHUP': 'Partido',
+            'WL': 'Rtdo',
+            'MIN': 'Min',
+            'PTS': 'PTS',
+            'FGM': 'TC Conv',
+            'FGA': 'TC Int',
+            'FG3M': '3P Conv',
+            'FG3A': '3P Int',
+            'REB': 'REB',
+            'AST': 'AST',
+            'TOV': 'Pérdidas',
+            'PF': 'Faltas'
+        }
         
-        # Mejorar formato
-        df_display['FG_PCT'] = (df_display['FG_PCT'] * 100).map('{:.1f}%'.format)
+        # Filtramos y renombramos para que la tabla sea clara
+        df_display = df_last_5[list(cols_map.keys())].copy()
+        df_display.rename(columns=cols_map, inplace=True)
         
-        st.table(df_display) # Usamos table para que se vea fijo y claro
+        # Mostramos la tabla principal
+        st.table(df_display)
         
-        # Un pequeño resumen visual abajo
-        avg_pts = df_last_5['PTS'].mean()
-        st.info(f"💡 **Promedio en estos 5 juegos:** {avg_pts:.1f} puntos.")
+        # Resumen rápido de eficiencia
+        avg_3p = df_last_5['FG3M'].mean()
+        avg_tov = df_last_5['TOV'].mean()
+        
+        col1, col2 = st.columns(2)
+        col1.metric("Promedio Triples (L5)", f"{avg_3p:.1f}")
+        col2.metric("Promedio Pérdidas (L5)", f"{avg_tov:.1f}")
+
     else:
-        st.warning("No se encontraron partidos para este jugador en la temporada actual.")
+        st.warning("No se encontraron registros recientes para este jugador.")
 
 except Exception as e:
-    st.error(f"Error al obtener los datos: {e}")
+    st.error(f"Error al conectar con la base de datos de la NBA: {e}")
