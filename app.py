@@ -5,7 +5,7 @@ from nba_api.stats.endpoints import playergamelog, commonteamroster
 
 st.set_page_config(page_title="NBA Player Game Log", layout="wide")
 
-st.title("🏀 Historial Detallado: Últimos 5 Partidos")
+st.title("🏀 Historial Completo: Últimos 5 Partidos")
 
 # 1. Obtener todos los equipos para el selector
 @st.cache_data
@@ -33,10 +33,9 @@ selected_player_name = st.sidebar.selectbox("2. Selecciona un Jugador", player_n
 # 3. Obtener el ID del jugador seleccionado
 player_id = df_roster[df_roster['PLAYER'] == selected_player_name]['PLAYER_ID'].values[0]
 
-# 4. Obtener el Log de partidos (Temporada actual)
+# 4. Obtener el Log de partidos (Temporada actual 2025-26)
 @st.cache_data(ttl=3600)
 def get_player_last_5(player_id):
-    # Traemos el log de la temporada 2025-26
     log = playergamelog.PlayerGameLog(player_id=player_id, season='2025-26')
     df_log = log.get_data_frames()[0]
     return df_log.head(5) 
@@ -48,10 +47,7 @@ try:
     if not df_last_5.empty:
         st.subheader(f"Desempeño de {selected_player_name} (Últimos 5 juegos)")
         
-        # Mapeo de columnas solicitadas:
-        # FGM: Tiros de campo anotados | FGA: Intentos de tiros de campo
-        # FG3M: Triples anotados | FG3A: Intentos de triples
-        # TOV: Pérdidas | PF: Faltas personales
+        # Mapeo de todas las columnas solicitadas
         cols_map = {
             'GAME_DATE': 'Fecha',
             'MATCHUP': 'Partido',
@@ -64,24 +60,26 @@ try:
             'FG3A': '3P Int',
             'REB': 'REB',
             'AST': 'AST',
+            'STL': 'Robos',   # <--- Agregado
+            'BLK': 'Bloqueos', # <--- Agregado
             'TOV': 'Pérdidas',
             'PF': 'Faltas'
         }
         
-        # Filtramos y renombramos para que la tabla sea clara
+        # Filtramos y renombramos
         df_display = df_last_5[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
         
         # Mostramos la tabla principal
         st.table(df_display)
         
-        # Resumen rápido de eficiencia
-        avg_3p = df_last_5['FG3M'].mean()
-        avg_tov = df_last_5['TOV'].mean()
+        # Resumen de Stocks (Robos + Bloqueos) para defensa
+        avg_stocks = (df_last_5['STL'] + df_last_5['BLK']).mean()
         
-        col1, col2 = st.columns(2)
-        col1.metric("Promedio Triples (L5)", f"{avg_3p:.1f}")
-        col2.metric("Promedio Pérdidas (L5)", f"{avg_tov:.1f}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Promedio PTS (L5)", f"{df_last_5['PTS'].mean():.1f}")
+        col2.metric("Promedio Robos+Blk (L5)", f"{avg_stocks:.1f}")
+        col3.metric("Promedio 3P Conv (L5)", f"{df_last_5['FG3M'].mean():.1f}")
 
     else:
         st.warning("No se encontraron registros recientes para este jugador.")
