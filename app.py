@@ -5,9 +5,8 @@ from nba_api.stats.endpoints import playergamelog, commonteamroster
 
 st.set_page_config(page_title="NBA Player Game Log", layout="wide")
 
-st.title("🏀 Historial Completo: Últimos 5 Partidos")
+st.title("🏀 Historial con Semáforo y Dobles")
 
-# 1. Obtener todos los equipos para el selector
 @st.cache_data
 def get_all_teams():
     return teams.get_teams()
@@ -15,12 +14,10 @@ def get_all_teams():
 nba_teams = get_all_teams()
 team_names = {t['full_name']: t['id'] for t in nba_teams}
 
-# Selectores en la barra lateral
 st.sidebar.header("Filtros de Búsqueda")
 selected_team_name = st.sidebar.selectbox("1. Selecciona un Equipo", sorted(team_names.keys()))
 team_id = team_names[selected_team_name]
 
-# 2. Obtener jugadores del equipo seleccionado
 @st.cache_data
 def get_team_roster(team_id):
     roster = commonteamroster.CommonTeamRoster(team_id=team_id)
@@ -30,15 +27,23 @@ df_roster = get_team_roster(team_id)
 player_names = sorted(df_roster['PLAYER'].tolist())
 selected_player_name = st.sidebar.selectbox("2. Selecciona un Jugador", player_names)
 
-# 3. Obtener el ID del jugador seleccionado
 player_id = df_roster[df_roster['PLAYER'] == selected_player_name]['PLAYER_ID'].values[0]
 
-# 4. Obtener el Log de partidos (Temporada actual 2025-26)
 @st.cache_data(ttl=3600)
 def get_player_last_5(player_id):
     log = playergamelog.PlayerGameLog(player_id=player_id, season='2025-26')
     df_log = log.get_data_frames()[0]
     return df_log.head(5) 
+
+# --- Lógica del Semáforo ---
+def highlight_high_values(val):
+    try:
+        # Si el valor es numérico y >= 10, pintamos el fondo de verde
+        if isinstance(val, (int, float)) and val >= 10:
+            return 'background-color: #28a745; color: white; font-weight: bold'
+    except:
+        pass
+    return ''
 
 try:
     with st.spinner(f'Buscando estadísticas de {selected_player_name}...'):
@@ -47,7 +52,6 @@ try:
     if not df_last_5.empty:
         st.subheader(f"Desempeño de {selected_player_name} (Últimos 5 juegos)")
         
-        # Mapeo de todas las columnas solicitadas
         cols_map = {
             'GAME_DATE': 'Fecha',
             'MATCHUP': 'Partido',
@@ -60,29 +64,42 @@ try:
             'FG3A': 'Int 3P',
             'REB': 'REB',
             'AST': 'AST',
-            'STL': 'Robos',   # <--- Agregado
-            'BLK': 'Bloqueos', # <--- Agregado
+            'STL': 'Robos',
+            'BLK': 'Bloqueos',
             'TOV': 'Pérdidas',
             'PF': 'Faltas'
         }
         
-        # Filtramos y renombramos
         df_display = df_last_5[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
         
-        # Mostramos la tabla principal
-        st.table(df_display)
+        # Aplicar el estilo del semáforo
+        styled_df = df_display.style.applymap(highlight_high_values)
         
-        # Resumen de Stocks (Robos + Bloqueos) para defensa
-        avg_stocks = (df_last_5['STL'] + df_last_5['BLK']).mean()
+        # Mostrar el dataframe estilizado (usamos dataframe para que los colores funcionen)
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Promedio PTS (L5)", f"{df_last_5['PTS'].mean():.1f}")
-        col2.metric("Promedio Robos+Blk (L5)", f"{avg_stocks:.1f}")
-        col3.metric("Promedio 3P (L5)", f"{df_last_5['FG3M'].mean():.1f}")
+        # --- Cálculo de Doble-Doble y Triple-Doble ---
+        # Un doble-doble es 10+ en al menos 2 categorías de: PTS, REB, AST, STL, BLK
+        def count_doubles(row):
+            stats = [row['PTS'], row['REB'], row['AST'], row['STL'], row['BLK']]
+            over_10 = sum(1 for s in stats if s >= 10)
+            return over_10
+
+        df_last_5['doubles_count'] = df_last_5.apply(count_doubles, axis=1)
+        double_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 2)
+        triple_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 3)
+        
+        # --- Métricas Inferiores ---
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Promedio PTS", f"{df_last_5['PTS'].mean():.1f}")
+        col2.metric("Promedio REB", f"{df_last_5['REB'].mean():.1f}")
+        col3.metric("Promedio AST", f"{df_last_5['AST'].mean():.1f}")
+        col4.metric("Doble-Doble", f"{double_doubles}")
+        col5.metric("Triple-Doble", f"{triple_doubles}")
 
     else:
         st.warning("No se encontraron registros recientes para este jugador.")
 
 except Exception as e:
-    st.error(f"Error al conectar con la base de datos de la NBA: {e}")
+    st.error(f"Error: {e}")
