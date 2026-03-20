@@ -88,7 +88,8 @@ try:
 
         # 3. Renderizar con st.table (A veces st.dataframe da problemas de CSS en móvil)
         # Probemos con st.table para asegurar que el HTML se renderice con colores
-        st.write(f"### {selected_player_name}")
+        # Esto mostrará: Jugador | Equipo
+        st.write(f"### {selected_player_name} | {selected_team_name}")
         st.table(styled_df)
 
         # ... (Tus métricas de abajo se mantienen igual) ...
