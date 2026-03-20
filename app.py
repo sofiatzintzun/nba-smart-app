@@ -37,25 +37,22 @@ def get_player_last_5(player_id):
 
 # --- Lógica del Semáforo PRO ---
 def apply_custom_style(df):
-    # Creamos una tabla de estilos vacía (sin formato)
+    # Creamos una tabla de estilos vacía
     style_df = pd.DataFrame('', index=df.index, columns=df.columns)
     
-    # Definimos el color verde
+    # Color verde
     css_verde = 'background-color: #28a745; color: white; font-weight: bold'
     
     for col in df.columns:
         for idx in df.index:
             val = df.loc[idx, col]
             
-            # Verificamos que sea un número
             if isinstance(val, (int, float)):
-                # REGLA A: Robos y Bloqueos si son >= 1
+                # REGLA A: Robos y Bloqueos >= 1
                 if col in ['Robos', 'Bloqueos']:
                     if val >= 1:
                         style_df.loc[idx, col] = css_verde
-                
-                # REGLA B: El resto de las columnas si son >= 10
-                # (PTS, REB, AST, etc.)
+                # REGLA B: Resto de columnas >= 10
                 elif val >= 10:
                     style_df.loc[idx, col] = css_verde
                     
@@ -70,52 +67,4 @@ try:
         
         cols_map = {
             'GAME_DATE': 'Fecha',
-            'MATCHUP': 'Partido',
-            'WL': 'Rtdo',
-            'MIN': 'Min',
-            'PTS': 'PTS',
-            'FGM': 'TCampo',
-            'FGA': 'Int TCampo',
-            'FG3M': '3P',
-            'FG3A': 'Int 3P',
-            'REB': 'REB',
-            'AST': 'AST',
-            'STL': 'Robos',
-            'BLK': 'Bloqueos',
-            'TOV': 'Pérdidas',
-            'PF': 'Faltas'
-        }
-        
-        df_display = df_last_5[list(cols_map.keys())].copy()
-        df_display.rename(columns=cols_map, inplace=True)
-        
-        # Aplicar el estilo del semáforo
-        styled_df = df_display.style.applymap(highlight_high_values)
-        
-        # Mostrar el dataframe estilizado (usamos dataframe para que los colores funcionen)
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
-        # --- Cálculo de Doble-Doble y Triple-Doble ---
-        # Un doble-doble es 10+ en al menos 2 categorías de: PTS, REB, AST, STL, BLK
-        def count_doubles(row):
-            stats = [row['PTS'], row['REB'], row['AST'], row['STL'], row['BLK']]
-            over_10 = sum(1 for s in stats if s >= 10)
-            return over_10
-
-        df_last_5['doubles_count'] = df_last_5.apply(count_doubles, axis=1)
-        double_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 2)
-        triple_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 3)
-        
-        # --- Métricas Inferiores ---
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("Promedio PTS", f"{df_last_5['PTS'].mean():.1f}")
-        col2.metric("Promedio REB", f"{df_last_5['REB'].mean():.1f}")
-        col3.metric("Promedio AST", f"{df_last_5['AST'].mean():.1f}")
-        col4.metric("Doble-Doble", f"{double_doubles}")
-        col5.metric("Triple-Doble", f"{triple_doubles}")
-
-    else:
-        st.warning("No se encontraron registros recientes para este jugador.")
-
-except Exception as e:
-    st.error(f"Error: {e}")
+            'MATCHUP':
