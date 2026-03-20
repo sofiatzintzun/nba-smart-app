@@ -27,6 +27,19 @@ def highlight_cells(val):
         pass
     return ''
 
+st.markdown("""
+    <style>
+    /* Ajusta el tamaño de fuente y espacio en las tablas */
+    table {
+        font-size: 12px !important;
+    }
+    th, td {
+        padding: 4px !important;
+        text-align: center !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("🏀 NBA Tracker - Semáforo Total")
 
 # ... (Todo tu código de obtención de equipos y jugadores se mantiene igual) ...
