@@ -40,7 +40,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA Tracker - Semáforo Total")
+st.title("🏀 Estadísticas: Últimos 5 Partidos")
 
 # ... (Todo tu código de obtención de equipos y jugadores se mantiene igual) ...
 @st.cache_data
