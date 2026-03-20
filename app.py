@@ -63,8 +63,8 @@ try:
         cols_map = {
             'GAME_DATE': 'Fecha', 'MATCHUP': 'Partido', 'WL': 'R', 'MIN': 'Min',
             'PTS': 'PTS', 'FGM': 'TC', 'FGA': 'TCA', 'FG3M': '3P', 'FG3A': '3PA',
-            'REB': 'REB', 'AST': 'AST', 'STL': 'Robos', 'BLK': 'Bloqueos',
-            'TOV': 'PÉRD', 'PF': 'F'
+            'REB': 'REB', 'AST': 'AST', 'STL': 'STL', 'BLK': 'BLK',
+            'TOV': 'ERR', 'PF': 'PF'
         }
         df_display = df_raw[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
