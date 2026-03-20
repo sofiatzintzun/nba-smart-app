@@ -71,7 +71,7 @@ try:
         
         # 2. Aplicar estilo celda por celda (A PRUEBA DE TODO)
         # Usamos .style.applymap() que es el método más directo
-        styled_df = df_display.style.applymap(highlight_cells, subset=['PTS', 'REB', 'AST', 'Robos', 'Bloqueos', 'TC', '3P'])
+        styled_df = df_display.style.applymap(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK', 'TC', '3P'])
 
         # 3. Renderizar con st.table (A veces st.dataframe da problemas de CSS en móvil)
         # Probemos con st.table para asegurar que el HTML se renderice con colores
