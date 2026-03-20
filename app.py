@@ -79,7 +79,7 @@ try:
         col1, col2, col3 = st.columns(3)
         col1.metric("Promedio PTS (L5)", f"{df_last_5['PTS'].mean():.1f}")
         col2.metric("Promedio Robos+Blk (L5)", f"{avg_stocks:.1f}")
-        col3.metric("Promedio 3P Conv (L5)", f"{df_last_5['FG3M'].mean():.1f}")
+        col3.metric("Promedio 3P (L5)", f"{df_last_5['FG3M'].mean():.1f}")
 
     else:
         st.warning("No se encontraron registros recientes para este jugador.")
