@@ -5,7 +5,7 @@ from nba_api.stats.endpoints import playergamelog, commonteamroster
 
 st.set_page_config(page_title="NBA Player Game Log", layout="wide")
 
-st.title("🏀 Historial con Semáforo y Dobles")
+st.title("🏀 Historial con Semáforo Pro")
 
 @st.cache_data
 def get_all_teams():
@@ -35,21 +35,34 @@ def get_player_last_5(player_id):
     df_log = log.get_data_frames()[0]
     return df_log.head(5) 
 
-# --- Lógica del Semáforo ---
-def highlight_high_values(val):
-    try:
-        # Si el valor es numérico y >= 10, pintamos el fondo de verde
-        if isinstance(val, (int, float)) and val >= 10:
-            return 'background-color: #28a745; color: white; font-weight: bold'
-    except:
-        pass
-    return ''
+# --- Nueva Lógica del Semáforo ---
+def apply_custom_style(df):
+    # Creamos una copia para el estilo
+    style_df = pd.DataFrame('', index=df.index, columns=df.columns)
+    
+    css_verde = 'background-color: #28a745; color: white; font-weight: bold'
+    
+    for col in df.columns:
+        for idx in df.index:
+            val = df.loc[idx, col]
+            if isinstance(val, (int, float)):
+                # Regla especial para Robos y Bloqueos (>= 1)
+                if col in ['Robos', 'Bloqueos']:
+                    if val >= 1:
+                        style_df.loc[idx, col] = css_verde
+                # Regla general para el resto (>= 10)
+                elif val >= 10:
+                    style_df.loc[idx, col] = css_verde
+    return style_df
 
 try:
     with st.spinner(f'Buscando estadísticas de {selected_player_name}...'):
-        df_last_5 = get_player_last_5(player_id)
+        df_raw = get_player_last_5(player_id)
 
-    if not df_last_5.empty:
+    if not df_raw.empty:
+        # Reset de índice para evitar errores de duplicados
+        df_last_5 = df_raw.copy().reset_index(drop=True)
+        
         st.subheader(f"Desempeño de {selected_player_name} (Últimos 5 juegos)")
         
         cols_map = {
@@ -73,18 +86,15 @@ try:
         df_display = df_last_5[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
         
-        # Aplicar el estilo del semáforo
-        styled_df = df_display.style.applymap(highlight_high_values)
+        # Aplicar el estilo condicional mejorado
+        styled_df = df_display.style.apply(apply_custom_style, axis=None)
         
-        # Mostrar el dataframe estilizado (usamos dataframe para que los colores funcionen)
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         # --- Cálculo de Doble-Doble y Triple-Doble ---
-        # Un doble-doble es 10+ en al menos 2 categorías de: PTS, REB, AST, STL, BLK
         def count_doubles(row):
             stats = [row['PTS'], row['REB'], row['AST'], row['STL'], row['BLK']]
-            over_10 = sum(1 for s in stats if s >= 10)
-            return over_10
+            return sum(1 for s in stats if s >= 10)
 
         df_last_5['doubles_count'] = df_last_5.apply(count_doubles, axis=1)
         double_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 2)
@@ -99,7 +109,7 @@ try:
         col5.metric("Triple-Doble", f"{triple_doubles}")
 
     else:
-        st.warning("No se encontraron registros recientes para este jugador.")
+        st.warning("No se encontraron registros recientes.")
 
 except Exception as e:
     st.error(f"Error: {e}")
