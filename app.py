@@ -37,10 +37,10 @@ def get_player_last_5(player_id):
 
 # --- Lógica del Semáforo PRO ---
 def apply_custom_style(df):
-    # Creamos una tabla de estilos vacía
+    # Creamos una tabla de estilos vacía con el mismo tamaño que el DF
     style_df = pd.DataFrame('', index=df.index, columns=df.columns)
     
-    # Color verde
+    # Definimos el color verde para resaltar
     css_verde = 'background-color: #28a745; color: white; font-weight: bold'
     
     for col in df.columns:
@@ -48,23 +48,76 @@ def apply_custom_style(df):
             val = df.loc[idx, col]
             
             if isinstance(val, (int, float)):
-                # REGLA A: Robos y Bloqueos >= 1
+                # REGLA A: Robos y Bloqueos si son >= 1
                 if col in ['Robos', 'Bloqueos']:
                     if val >= 1:
                         style_df.loc[idx, col] = css_verde
-                # REGLA B: Resto de columnas >= 10
+                # REGLA B: El resto de las columnas si son >= 10
                 elif val >= 10:
                     style_df.loc[idx, col] = css_verde
                     
     return style_df
 
+# --- Ejecución Principal ---
 try:
     with st.spinner(f'Buscando estadísticas de {selected_player_name}...'):
-        df_last_5 = get_player_last_5(player_id)
+        df_raw = get_player_last_5(player_id)
 
-    if not df_last_5.empty:
+    if not df_raw.empty:
+        # Limpieza de datos (Reset index para evitar errores de Styler)
+        df_last_5 = df_raw.copy().reset_index(drop=True)
+        
         st.subheader(f"Desempeño de {selected_player_name} (Últimos 5 juegos)")
         
+        # Mapeo de columnas solicitado
         cols_map = {
             'GAME_DATE': 'Fecha',
-            'MATCHUP':
+            'MATCHUP': 'Partido',
+            'WL': 'Rtdo',
+            'MIN': 'Min',
+            'PTS': 'PTS',
+            'FGM': 'TCampo',
+            'FGA': 'Int TCampo',
+            'FG3M': '3P',
+            'FG3A': 'Int 3P',
+            'REB': 'REB',
+            'AST': 'AST',
+            'STL': 'Robos',
+            'BLK': 'Bloqueos',
+            'TOV': 'Pérdidas',
+            'PF': 'Faltas'
+        }
+        
+        # Filtrar y renombrar
+        df_display = df_last_5[list(cols_map.keys())].copy()
+        df_display.rename(columns=cols_map, inplace=True)
+        
+        # Aplicar el estilo condicional (Reglas de 1 y 10)
+        styled_df = df_display.style.apply(apply_custom_style, axis=None)
+        
+        # Mostrar tabla principal
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        
+        # --- Cálculo de Doble-Doble y Triple-Doble ---
+        def count_doubles(row):
+            # Usamos los nombres de las columnas originales para el cálculo
+            stats = [row['PTS'], row['REB'], row['AST'], row['STL'], row['BLK']]
+            return sum(1 for s in stats if s >= 10)
+
+        df_last_5['doubles_count'] = df_last_5.apply(count_doubles, axis=1)
+        double_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 2)
+        triple_doubles = sum(1 for x in df_last_5['doubles_count'] if x >= 3)
+        
+        # --- Métricas Inferiores ---
+        col1, col2, col3, col4, col5 = st.columns(5)
+        col1.metric("Avg PTS", f"{df_last_5['PTS'].mean():.1f}")
+        col2.metric("Avg REB", f"{df_last_5['REB'].mean():.1f}")
+        col3.metric("Avg AST", f"{df_last_5['AST'].mean():.1f}")
+        col4.metric("Doble-Doble", f"{double_doubles}/5")
+        col5.metric("Triple-Doble", f"{triple_doubles}/5")
+
+    else:
+        st.warning("No se encontraron registros recientes para este jugador.")
+
+except Exception as e:
+    st.error(f"Error técnico: {e}")
