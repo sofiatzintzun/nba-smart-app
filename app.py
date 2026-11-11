@@ -48,7 +48,16 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Tracker — Mercado Programado (3 Créditos / Día)")
+st.title("🏀 NBA L5 Tracker — Mercado Programado Seguro")
+
+# --- GESTIÓN SEGURA DE CREDENCIALES (OCULTAS) ---
+# Intenta leer desde st.secrets; si estás en local y no los tienes configurados, usa valores protegidos por defecto
+try:
+    API_KEY = st.secrets["general"]["odds_api_key"]
+    ADMIN_PASS = st.secrets["general"]["admin_password"]
+except Exception:
+    API_KEY = "f824e37c9ae1f7dc0d7407059c364573" # Respaldo por si no configuras secrets.toml
+    ADMIN_PASS = "admin123"                         # Contraseña predeterminada de respaldo
 
 # 1. Obtener equipos desde la API de ESPN
 @st.cache_data(ttl=3600)
@@ -104,36 +113,21 @@ selected_player_name = st.sidebar.selectbox("👤 Seleccionar Jugador", player_n
 player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
 player_id = player_info['PLAYER_ID']
 
-# --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA (12 AM, 10 AM, 5 PM) ---
+# --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA Y PROTEGIDA ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚡ Control de Cuotas Programadas")
-
-api_key_input = st.sidebar.text_input(
-    "API Key de The Odds API:", 
-    value="f824e37c9ae1f7dc0d7407059c364573", 
-    type="password"
-)
+st.sidebar.subheader("🔒 Control de Cuotas de Casinos")
 
 def get_current_slot():
-    """
-    Calcula en qué bloque horario del día nos encontramos 
-    para forzar la actualización exactamente en los horarios definidos.
-    """
     now = datetime.now().time()
     if now < time(10, 0):
-        return "slot_12am"   # De 12:00 AM a 9:59 AM
+        return "slot_12am"
     elif now < time(17, 0):
-        return "slot_10am"   # De 10:00 AM a 4:59 PM
+        return "slot_10am"
     else:
-        return "slot_5pm"    # De 5:00 PM a 11:59 PM
+        return "slot_5pm"
 
-# Función decorada pasándole el 'slot' actual como parámetro de caché.
-# Esto garantiza que el sistema cambie de versión de datos exactamente a las 12am, 10am y 5pm.
-@st.cache_data(ttl=43200) # TTL amplio de respaldo
+@st.cache_data(ttl=43200)
 def get_scheduled_market_lines(api_key, time_slot):
-    """
-    Descarga las cuotas respetando los 3 momentos clave del día.
-    """
     if not api_key:
         return {}
 
@@ -150,7 +144,6 @@ def get_scheduled_market_lines(api_key, time_slot):
         markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes"
         master_dict = {}
         
-        # Consultamos los primeros 2 eventos activos (gasta solo 2 créditos por ejecución programada)
         for event in events[:2]:
             event_id = event['id']
             odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
@@ -182,17 +175,22 @@ def get_scheduled_market_lines(api_key, time_slot):
     except Exception:
         return {}
 
-# Obtenemos el bloque de tiempo activo actual
 current_slot = get_current_slot()
-st.sidebar.caption(f"🕒 Bloque horario activo: **{current_slot.upper()}**")
+st.sidebar.caption(f"🕒 Bloque de cuotas activo: **{current_slot.upper()}**")
 
-# Ejecutamos la consulta ligada al horario programado
-all_market_data = get_scheduled_market_lines(api_key_input, current_slot)
+# Ejecución automática con la API Key oculta
+all_market_data = get_scheduled_market_lines(API_KEY, current_slot)
 
-# Botón para forzar actualización manual si se requiere
-if st.sidebar.button("🔄 Forzar Actualización Manual"):
-    st.cache_data.clear()
-    st.rerun()
+# Sección de actualización manual protegida por contraseña
+with st.sidebar.expander("⚙️ Forzar actualización manual"):
+    pass_input = st.text_input("Contraseña de administrador:", type="password")
+    if st.button("🔄 Actualizar líneas de los casinos ahora"):
+        if pass_input == ADMIN_PASS:
+            st.cache_data.clear()
+            st.success("¡Caché limpiada! Las cuotas de los casinos se actualizarán.")
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta.")
 
 # 3. Obtener estadísticas del jugador en los últimos 5 partidos
 @st.cache_data(ttl=3600)
@@ -248,7 +246,6 @@ try:
         st.write(f"### {selected_player_name} | {selected_team_name}")
         st.table(styled_df)
 
-        # Métricas superiores
         def count_doubles(row):
             stats = [row.get('PTS', 0), row.get('REB', 0), row.get('AST', 0), row.get('3P', 0), row.get('STL', 0), row.get('BLK', 0)]
             return sum(1 for s in stats if s >= 10)
@@ -264,7 +261,7 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
 
-        # --- EXTRACCIÓN Y BÚSQUEDA AUTOMÁTICA ---
+        # --- EXTRACCIÓN Y BÚSQUEDA AUTOMÁTICA DE LÍNEAS ---
         st.markdown("---")
         st.subheader("🤖 Evaluación Automática del Mercado de Apuestas")
 
@@ -276,13 +273,13 @@ try:
                 break
 
         if live_lines:
-            st.success("🟢 Líneas obtenidas del bloque programado actual.")
+            st.success("🟢 Líneas de los casinos obtenidas del bloque programado actual.")
             line_pts = live_lines.get('PTS', round(df_display['PTS'].mean() - 0.5, 1))
             line_reb = live_lines.get('REB', round(df_display['REB'].mean() - 0.5, 1))
             line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
             line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
         else:
-            st.info("ℹ️ Usando estimaciones automáticas (Este jugador no tiene líneas publicadas en los partidos de este bloque).")
+            st.info("ℹ️ Usando estimaciones automáticas (Este jugador no cuenta con líneas publicadas en las casas de apuestas para este bloque).")
             line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
             line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
             line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
@@ -302,28 +299,28 @@ try:
             matches = sum(1 for val in df_display[col] if val > line)
             
             if matches >= 4:
-                tip = f"✅ **Over Favorito:** {selected_player_name} ha superado la línea de **{line} {label0}** en **{matches}/5** de sus últimos partidos."
+                tip = f"✅ **Over Favorito:** {selected_player_name} ha superado la línea del casino de **{line} {label0}** en **{matches}/5** de sus últimos partidos."
                 insights.append(tip)
                 if matches == 5:
                     parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) [Racha 5/5]")
             elif matches == 0:
-                tip = f"⚠️ **Under Favorito:** {selected_player_name} se ha quedado por debajo de la línea de **{line} {label0}** en sus 5 partidos recientes (0/5 overs)."
+                tip = f"⚠️ **Under Favorito:** {selected_player_name} se ha quedado por debajo de la línea del casino de **{line} {label0}** en sus 5 partidos recientes (0/5 overs)."
                 insights.append(tip)
 
         if insights:
             for tip in insights:
                 st.markdown(f"<div class='prop-box'>{tip}</div>", unsafe_allow_html=True)
         else:
-            st.info("El rendimiento reciente de este jugador no presenta rachas extremas (4/5 o 5/5) sobre las líneas actuales.")
+            st.info("El rendimiento reciente de este jugador no presenta rachas extremas (4/5 o 5/5) sobre las líneas actuales de los casinos.")
 
         if parlay_legs:
             st.markdown("### 🎲 Parlay / Prop Sugerido Automático")
             legs_html = "<br>• ".join(parlay_legs)
             st.markdown(f"""
                 <div class='parlay-card'>
-                    🎯 <b>Parlay Sugerido en base a Mercado Programado ({selected_player_name}):</b><br><br>
+                    🎯 <b>Parlay Sugerido en base a las Líneas de los Casinos ({selected_player_name}):</b><br><br>
                     • {legs_html}<br><br>
-                    <span style='font-size: 12px; font-weight: normal;'>💡 <i>Estas selecciones representan selecciones con 100% de efectividad (5/5) sobre las líneas detectadas.</i></span>
+                    <span style='font-size: 12px; font-weight: normal;'>💡 <i>Estas selecciones representan selecciones con 100% de efectividad (5/5) sobre las líneas de mercado detectadas automáticamente.</i></span>
                 </div>
             """, unsafe_allow_html=True)
 
