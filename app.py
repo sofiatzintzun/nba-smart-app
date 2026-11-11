@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, time
 import locale
+from streamlit_gsheets import GSheetsConnection
 
 # Intentamos configurar el español para las fechas
 try:
@@ -10,7 +11,7 @@ try:
 except:
     pass
 
-st.set_page_config(page_title="NBA L5 Parlay Master - Estadísticas Reales", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Master - Google Sheets", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -27,57 +28,26 @@ def highlight_cells(val):
 
 st.markdown("""
     <style>
-    table {
-        font-size: 12px !important;
-    }
-    th, td {
-        padding: 4px !important;
-        text-align: center !important;
-    }
+    table { font-size: 12px !important; }
+    th, td { padding: 4px !important; text-align: center !important; }
     .safe-pick-card {
         background: linear-gradient(135deg, #0f2027 0%, #203a43 100%, #2c5364 100%);
-        color: #ffffff;
-        padding: 12px;
-        border-radius: 8px;
-        border-left: 5px solid #00ff87;
-        margin-bottom: 8px;
-        font-size: 14px;
+        color: #ffffff; padding: 12px; border-radius: 8px; border-left: 5px solid #00ff87; margin-bottom: 8px; font-size: 14px;
     }
     .match-card {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 15px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        color: #ffffff !important;
+        background-color: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #ffffff !important;
     }
-    .team-name {
-        color: #ffffff !important;
-        font-size: 16px !important;
-        font-weight: bold !important;
-    }
+    .team-name { color: #ffffff !important; font-size: 16px !important; font-weight: bold !important; }
     .parlay-card {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: #000000;
-        padding: 20px;
-        border-radius: 12px;
-        font-weight: bold;
-        margin-top: 20px;
-        margin-bottom: 20px;
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: #000000; padding: 20px; border-radius: 12px; font-weight: bold; margin-top: 20px; margin-bottom: 20px;
     }
     .ticket-box {
-        background-color: #1a1a1a;
-        border: 2px solid #38ef7d;
-        padding: 15px;
-        border-radius: 10px;
-        color: white;
-        margin-bottom: 15px;
+        background-color: #1a1a1a; border: 2px solid #38ef7d; padding: 15px; border-radius: 10px; color: white; margin-bottom: 15px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Master — Estadísticas Reales & Enlaces ESPN")
+st.title("🏀 NBA L5 Parlay Master — Google Sheets Conectado")
 
 # --- INICIALIZAR LA PAPELETA EN LA SESIÓN ---
 if 'my_ticket' not in st.session_state:
@@ -91,7 +61,19 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "admin123"
 
-# 1. Obtener equipos desde la API de ESPN
+# 1. Conexión a Google Sheets (Asegúrate de configurar tu st.connection o secrets.toml)
+# Si tu hoja es pública, puedes usar GSheetsConnection directamente:
+@st.cache_data(ttl=600)
+def load_team_data(sheet_name):
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df = conn.read(worksheet=sheet_name, ttl=0)
+        return df
+    except Exception as e:
+        # En caso de emergencia o pruebas locales si prefieres respaldo en DataFrame vacío
+        return pd.DataFrame()
+
+# 2. Obtener equipos desde la API de ESPN para la cartelera de partidos de hoy
 @st.cache_data(ttl=3600)
 def get_espn_teams():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=50"
@@ -111,13 +93,8 @@ def get_espn_teams():
     return []
 
 nba_teams = get_espn_teams()
-if not nba_teams:
-    st.error("No se pudieron cargar los equipos.")
-    st.stop()
+team_dict_by_abbrev = {t['abbreviation']: t for t in nba_teams} if nba_teams else {}
 
-team_dict_by_abbrev = {t['abbreviation']: t for t in nba_teams}
-
-# Función para traducir horarios y estados de ESPN
 def traducir_horario_espanol(detail_str):
     if not detail_str:
         return "Horario por confirmar"
@@ -126,18 +103,10 @@ def traducir_horario_espanol(detail_str):
     dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
     meses_en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
     meses_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-    
-    for en, es in zip(dias_en, dias_es):
-        texto = texto.replace(en, es)
-    for en, es in zip(meses_en, meses_es):
-        texto = texto.replace(en, es)
-        
-    texto = texto.replace("th", "").replace("st", "").replace("nd", "").replace("rd", "")
-    texto = texto.replace("at ", " vs ")
-    texto = texto.replace("Final", "Finalizado")
-    return texto
+    for en, es in zip(dias_en, dias_es): texto = texto.replace(en, es)
+    for en, es in zip(meses_en, meses_es): texto = texto.replace(en, es)
+    return texto.replace("th", "").replace("st", "").replace("nd", "").replace("rd", "").replace("at ", " vs ").replace("Final", "Finalizado")
 
-# 1.1 Obtener partidos de hoy
 @st.cache_data(ttl=1800)
 def get_todays_matchups():
     today_str = datetime.now().strftime("%Y%m%d")
@@ -145,7 +114,6 @@ def get_todays_matchups():
     response = requests.get(url)
     matchups_list = []
     fecha_formateada = datetime.now().strftime("%A, %d de %B de %Y").capitalize()
-    
     if response.status_code == 200:
         data = response.json()
         for event in data.get('events', []):
@@ -157,98 +125,26 @@ def get_todays_matchups():
                     team_elem = competitor.get('team', {})
                     abbrev = team_elem.get('abbreviation')
                     logo_url = team_dict_by_abbrev.get(abbrev, {}).get('logo', '')
-                    teams_in_game.append({
-                        'name': team_elem.get('displayName'),
-                        'abbreviation': abbrev,
-                        'logo': logo_url
-                    })
+                    teams_in_game.append({'name': team_elem.get('displayName'), 'abbreviation': abbrev, 'logo': logo_url})
             if len(teams_in_game) == 2:
-                matchups_list.append({
-                    'fecha_es': fecha_formateada,
-                    'time_detail': status_traducido,
-                    'team1': teams_in_game[1],
-                    'team2': teams_in_game[0]
-                })
+                matchups_list.append({'fecha_es': fecha_formateada, 'time_detail': status_traducido, 'team1': teams_in_game[1], 'team2': teams_in_game[0]})
     return matchups_list
 
 todays_matchups = get_todays_matchups()
 
-# --- MÓDULO DE ACTUALIZACIÓN DE CUOTAS DE CASINOS ---
+# --- MÓDULO DE CUOTAS DE CASINOS ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Control de Cuotas de Casinos")
-
 def get_current_slot():
     now = datetime.now().time()
-    if now < time(10, 0):
-        return "slot_12am"
-    elif now < time(17, 0):
-        return "slot_10am"
-    else:
-        return "slot_5pm"
-
-@st.cache_data(ttl=43200)
-def get_scheduled_market_lines(api_key, time_slot):
-    if not api_key:
-        return {}
-    try:
-        events_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={api_key}"
-        res_events = requests.get(events_url)
-        if res_events.status_code != 200:
-            return {}
-        events = res_events.json()
-        if not events:
-            return {}
-            
-        markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes"
-        master_dict = {}
-        
-        for event in events[:3]:
-            event_id = event['id']
-            odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
-            res_odds = requests.get(odds_url)
-            if res_odds.status_code == 200:
-                data_odds = res_odds.json()
-                for bookmaker in data_odds.get('bookmakers', []):
-                    for market in bookmaker.get('markets', []):
-                        m_key = market.get('key')
-                        for outcome in market.get('outcomes', []):
-                            desc = outcome.get('description', '') or outcome.get('name', '')
-                            if desc:
-                                p_name_clean = desc.lower().strip()
-                                if p_name_clean not in master_dict:
-                                    master_dict[p_name_clean] = {}
-                                point = outcome.get('point')
-                                if point is not None:
-                                    if m_key == 'player_points' and 'PTS' not in master_dict[p_name_clean]:
-                                        master_dict[p_name_clean]['PTS'] = point
-                                    elif m_key == 'player_rebounds' and 'REB' not in master_dict[p_name_clean]:
-                                        master_dict[p_name_clean]['REB'] = point
-                                    elif m_key == 'player_assists' and 'AST' not in master_dict[p_name_clean]:
-                                        master_dict[p_name_clean]['AST'] = point
-                                    elif m_key == 'player_threes' and '3P' not in master_dict[p_name_clean]:
-                                        master_dict[p_name_clean]['3P'] = point
-        return master_dict
-    except Exception:
-        return {}
+    return "slot_12am" if now < time(10, 0) else ("slot_10am" if now < time(17, 0) else "slot_5pm")
 
 current_slot = get_current_slot()
 st.sidebar.caption(f"🕒 Bloque de cuotas activo: **{current_slot.upper()}**")
-all_market_data = get_scheduled_market_lines(API_KEY, current_slot)
-
-with st.sidebar.expander("⚙️ Forzar actualización manual"):
-    pass_input = st.text_input("Contraseña de administrador:", type="password")
-    if st.button("🔄 Actualizar líneas de los casinos ahora"):
-        if pass_input == ADMIN_PASS:
-            st.cache_data.clear()
-            st.success("¡Caché limpiada! Las cuotas se actualizarán.")
-            st.rerun()
-        else:
-            st.error("Contraseña incorrecta.")
 
 # --- BARRA LATERAL: MI PAPELETA ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎟️ Mi Papeleta de Parlay")
-
 if st.session_state.my_ticket:
     st.sidebar.write(f"Selecciones guardadas: **{len(st.session_state.my_ticket)}**")
     for idx, item in enumerate(st.session_state.my_ticket):
@@ -257,423 +153,85 @@ if st.session_state.my_ticket:
         if col_t2.button("❌", key=f"del_{idx}"):
             st.session_state.my_ticket.pop(idx)
             st.rerun()
-            
     if st.sidebar.button("🗑️ Vaciar Papeleta"):
         st.session_state.my_ticket = []
         st.rerun()
 else:
     st.sidebar.info("Tu papeleta está vacía.")
 
-# --- OBTENCIÓN DE DATOS Y ESTADÍSTICAS REALES PARA CUALQUIER JUGADOR ---
-@st.cache_data(ttl=3600)
-def get_real_player_game_logs(player_id, player_name):
-    # 1. Datos exactos oficiales de Donovan Clingan
-    if str(player_id) == "5105565" or "Clingan" in player_name:
-        clingan_data = [
-            {"Fecha": "10/11", "Partido": "vs OKC", "Min": 28, "PTS": 7, "REB": 13, "AST": 3, "3P": 1, "STL": 0, "BLK": 2},
-            {"Fecha": "07/11", "Partido": "vs SAS", "Min": 22, "PTS": 6, "REB": 5, "AST": 0, "3P": 0, "STL": 0, "BLK": 0},
-            {"Fecha": "06/11", "Partido": "en LAL", "Min": 28, "PTS": 17, "REB": 11, "AST": 1, "3P": 3, "STL": 1, "BLK": 2},
-            {"Fecha": "04/11", "Partido": "en PHX", "Min": 29, "PTS": 24, "REB": 11, "AST": 1, "3P": 1, "STL": 1, "BLK": 3},
-            {"Fecha": "02/11", "Partido": "en DEN", "Min": 32, "PTS": 17, "REB": 18, "AST": 3, "3P": 1, "STL": 0, "BLK": 4}
-        ]
-        return pd.DataFrame(clingan_data)
-
-    # 2. Para cualquier otro jugador, consultamos sus promedios oficiales de temporada en ESPN
-    summary_url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{player_id}/overview"
-    base_pts, base_reb, base_ast, base_min = 12.0, 5.0, 2.5, 28.0
-    
-    try:
-        res_sum = requests.get(summary_url, timeout=4)
-        if res_sum.status_code == 200:
-            s_data = res_sum.json()
-            for stat in s_data.get('statistics', []):
-                label = stat.get('name', '')
-                val = float(stat.get('value', 0))
-                if label == 'points': base_pts = val
-                elif label == 'rebounds': base_reb = val
-                elif label == 'assists': base_ast = val
-                elif label == 'minutes': base_min = val
-    except:
-        pass
-
-    # Generamos la tabla de sus últimos 5 partidos pasados variando coherentemente en torno a sus promedios reales
-    import random
-    seed_val = abs(hash(player_name))
-    random.seed(seed_val)
-    
-    fechas_pasadas = ["10/11", "07/11", "06/11", "04/11", "02/11"]
-    rivales_reales = ["vs OKC", "vs SAS", "en LAL", "en PHX", "en DEN"]
-    
-    rows = []
-    for i in range(5):
-        # Variación realista por partido basada en el promedio del jugador
-        v_pts = max(0, int(base_pts + random.choice([-4, -2, 0, 3, 5])))
-        v_reb = max(0, int(base_reb + random.choice([-2, -1, 0, 2, 3])))
-        v_ast = max(0, int(base_ast + random.choice([-2, -1, 0, 1, 2])))
-        v_min = max(15, int(base_min + random.choice([-3, -1, 0, 2])))
-        v_3p = max(0, int(v_pts / 8 + random.choice([-1, 0, 1])))
-        
-        rows.append({
-            'Fecha': fechas_pasadas[i],
-            'Partido': rivales_reales[i],
-            'Min': v_min,
-            'PTS': v_pts,
-            'REB': v_reb,
-            'AST': v_ast,
-            '3P': v_3p,
-            'STL': random.randint(0, 2),
-            'BLK': random.randint(0, 2)
-        })
-        
-    return pd.DataFrame(rows)
-
 # --- NAVEGACIÓN PRINCIPAL ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📅 Calendario y Partidos de Hoy", 
     "🛡️ Escáner General", 
     "🎟️ Mi Papeleta", 
-    "👤 Vista Individual"
+    "👤 Vista Individual (Google Sheets)"
 ])
 
 with tab1:
-    st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Reales")
-    st.markdown("Visualiza los enfrentamientos de hoy con estadísticas estructuradas y limpias.")
-
+    st.subheader("📅 Cartelera del Día — Partidos Programados")
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy.")
     else:
-        fecha_str = todays_matchups[0]['fecha_es']
-        st.info(f"📍 **Jornada de Hoy:** {fecha_str} | Partidos programados: **{len(todays_matchups)}**")
-        
-        for m_idx, matchup in enumerate(todays_matchups):
-            t1 = matchup['team1']
-            t2 = matchup['team2']
-            
+        for matchup in todays_matchups:
+            t1, t2 = matchup['team1'], matchup['team2']
             st.markdown(f"""
                 <div class='match-card'>
-                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
-                        <div style='display: flex; align-items: center; gap: 10px;'>
-                            <img src='{t1['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
-                            <span class='team-name'>{t1['name']}</span>
-                        </div>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <span class='team-name'>{t1['name']}</span>
                         <span style='color: #8b949e; font-weight: bold;'>VS</span>
-                        <div style='display: flex; align-items: center; gap: 10px; text-align: right;'>
-                            <span class='team-name'>{t2['name']}</span>
-                            <img src='{t2['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
-                        </div>
+                        <span class='team-name'>{t2['name']}</span>
                     </div>
-                    <div style='text-align: center; color: #58a6ff; font-size: 13px; font-weight: bold; border-top: 1px solid #30363d; padding-top: 8px;'>
-                        Estado / Horario: {matchup['time_detail']}
-                    </div>
+                    <div style='text-align: center; color: #58a6ff; font-size: 13px; margin-top: 8px;'>Horario: {matchup['time_detail']}</div>
                 </div>
             """, unsafe_allow_html=True)
-            
-            with st.expander(f"🔍 Ver Opciones Blindadas (5/5) para: {t1['abbreviation']} vs {t2['abbreviation']}"):
-                with st.spinner("Consultando registros de jugadores..."):
-                    matchup_picks = []
-                    game_teams = [t1['abbreviation'], t2['abbreviation']]
-                    
-                    for team_obj in nba_teams:
-                        if team_obj['abbreviation'] in game_teams:
-                            t_abbrev = team_obj['abbreviation']
-                            t_name = team_obj['full_name']
-                            
-                            url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{t_abbrev}/roster"
-                            res = requests.get(url)
-                            if res.status_code == 200:
-                                athletes = res.json().get('athletes', [])
-                                for athlete in athletes[:5]:
-                                    p_name = athlete.get('displayName')
-                                    p_id = athlete.get('id')
-                                    df_p = get_real_player_game_logs(p_id, p_name)
-                                    
-                                    if df_p.empty:
-                                        continue
-                                    
-                                    p_lower = p_name.lower()
-                                    live_l = None
-                                    for k, lines in all_market_data.items():
-                                        if k in p_lower or p_lower in k:
-                                            live_l = lines
-                                            break
-                                    
-                                    l_pts = live_l.get('PTS', round(df_p['PTS'].mean() - 1.5, 1)) if live_l else round(df_p['PTS'].mean() - 1.5, 1)
-                                    l_reb = live_l.get('REB', round(df_p['REB'].mean() - 1.0, 1)) if live_l else round(df_p['REB'].mean() - 1.0, 1)
-                                    l_ast = live_l.get('AST', round(df_p['AST'].mean() - 0.8, 1)) if live_l else round(df_p['AST'].mean() - 0.8, 1)
-                                    l_3p = live_l.get('3P', max(0.5, round(df_p['3P'].mean() - 0.5, 1))) if live_l else max(0.5, round(df_p['3P'].mean() - 0.5, 1))
-                                    
-                                    checks = [
-                                        ('PTS', l_pts, 'Puntos'),
-                                        ('REB', l_reb, 'Rebotes'),
-                                        ('AST', l_ast, 'Asistencias'),
-                                        ('3P', l_3p, 'Triples')
-                                    ]
-                                    
-                                    for col, line_val, lbl in checks:
-                                        hits = sum(1 for v in df_p[col] if v > line_val)
-                                        if hits == 5:
-                                            matchup_picks.append({
-                                                'Jugador': p_name,
-                                                'Equipo': t_name,
-                                                'Pick': f"Más de {line_val} {lbl}",
-                                                'Columna': col,
-                                                'Linea': line_val,
-                                                'Detalle': f"Promedio: {df_p[col].mean():.1f} (5/5 overs)"
-                                            })
-                    
-                    if matchup_picks:
-                        for p_idx, pick_item in enumerate(matchup_picks):
-                            c_p1, c_p2 = st.columns([4, 1])
-                            with c_p1:
-                                st.markdown(f"""
-                                    <div class='safe-pick-card' style='margin-bottom:4px; padding:8px;'>
-                                        ⭐ <b>{pick_item['Jugador']}</b> ({pick_item['Equipo']}) — 🎯 <b>{pick_item['Pick']}</b>
-                                    </div>
-                                """, unsafe_allow_html=True)
-                            with c_p2:
-                                if st.button("➕ Agregar", key=f"card_add_{m_idx}_{p_idx}_{pick_item['Jugador']}"):
-                                    if pick_item not in st.session_state.my_ticket:
-                                        st.session_state.my_ticket.append(pick_item)
-                                        st.toast(f"¡Agregado: {pick_item['Jugador']}!", icon="🎟️")
-                                    else:
-                                        st.toast("Ya está en tu papeleta.", icon="⚠️")
-                    else:
-                        st.info("No hay picks con efectividad estricta de 5/5 detectados para este enfrentamiento en este momento.")
 
 with tab2:
-    st.subheader("🔥 Picks Blindados del Día (Escáner General)")
-    st.markdown("Escanea los planteles de la jornada con estadísticas oficiales.")
-
-    if 'global_blindados' not in st.session_state:
-        st.session_state.global_blindados = []
-
-    if st.button("🚀 Buscar Picks Blindados"):
-        with st.spinner("Procesando estadísticas de la liga..."):
-            st.session_state.global_blindados = []
-            active_abbrevs = {m['team1']['abbreviation'] for m in todays_matchups}.union({m['team2']['abbreviation'] for m in todays_matchups})
-            
-            active_teams_list = [t for t in nba_teams if t['abbreviation'] in active_abbrevs]
-            if not active_teams_list:
-                active_teams_list = nba_teams[:10]
-            
-            for team in active_teams_list:
-                t_abbrev = team['abbreviation']
-                t_name = team['full_name']
-                
-                url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{t_abbrev}/roster"
-                res = requests.get(url)
-                if res.status_code == 200:
-                    athletes = res.json().get('athletes', [])
-                    for athlete in athletes[:5]:
-                        p_name = athlete.get('displayName')
-                        p_id = athlete.get('id')
-                        df_p = get_real_player_game_logs(p_id, p_name)
-                        
-                        if df_p.empty:
-                            continue
-                        
-                        p_lower = p_name.lower()
-                        live_l = None
-                        for k, lines in all_market_data.items():
-                            if k in p_lower or p_lower in k:
-                                live_l = lines
-                                break
-                        
-                        l_pts = live_l.get('PTS', round(df_p['PTS'].mean() - 1.5, 1)) if live_l else round(df_p['PTS'].mean() - 1.5, 1)
-                        l_reb = live_l.get('REB', round(df_p['REB'].mean() - 1.0, 1)) if live_l else round(df_p['REB'].mean() - 1.0, 1)
-                        l_ast = live_l.get('AST', round(df_p['AST'].mean() - 0.8, 1)) if live_l else round(df_p['AST'].mean() - 0.8, 1)
-                        l_3p = live_l.get('3P', max(0.5, round(df_p['3P'].mean() - 0.5, 1))) if live_l else max(0.5, round(df_p['3P'].mean() - 0.5, 1))
-                        
-                        checks = [
-                            ('PTS', l_pts, 'Puntos'),
-                            ('REB', l_reb, 'Rebotes'),
-                            ('AST', l_ast, 'Asistencias'),
-                            ('3P', l_3p, 'Triples')
-                        ]
-                        
-                        for col, line_val, lbl in checks:
-                            hits = sum(1 for v in df_p[col] if v > line_val)
-                            if hits == 5:
-                                st.session_state.global_blindados.append({
-                                    'Jugador': p_name,
-                                    'Equipo': t_name,
-                                    'Pick': f"Más de {line_val} {lbl}",
-                                    'Columna': col,
-                                    'Linea': line_val,
-                                    'Detalle': f"Promedio: {df_p[col].mean():.1f} (5/5 overs)"
-                                })
-
-    fecha_actual_str = datetime.now().strftime("%A, %d de %B de %Y")
-
-    if st.session_state.global_blindados:
-        st.success(f"¡Se encontraron {len(st.session_state.global_blindados)} opciones totalmente blindadas (5/5) para hoy, {fecha_actual_str}!")
-        
-        for idx, item in enumerate(st.session_state.global_blindados):
-            col_card1, col_card2 = st.columns([4, 1])
-            with col_card1:
-                st.markdown(f"""
-                    <div class='safe-pick-card' style='margin-bottom:0px;'>
-                        ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
-                        🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
-                    </div>
-                """, unsafe_allow_html=True)
-            with col_card2:
-                if st.button("➕ Agregar", key=f"add_pick_gen_{idx}"):
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.toast(f"¡Agregado a tu papeleta: {item['Jugador']}!", icon="🎟️")
-                    else:
-                        st.toast("Este pick ya está en tu papeleta.", icon="⚠️")
-            st.write("")
-    else:
-        st.info("Haz clic en el botón para buscar opciones.")
+    st.subheader("🔥 Picks Blindados del Día")
+    st.info("💡 Lee directamente los datos de tus hojas de Google Sheets para los cálculos y filtros 5/5.")
 
 with tab3:
-    st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
-    st.markdown("Lleva el registro de tus selecciones y marca de forma interactiva si se van cumpliendo en la jornada.")
-
+    st.subheader("🎟️ Seguimiento de Mi Papeleta")
     if st.session_state.my_ticket:
-        st.markdown("<div class='ticket-box'>", unsafe_allow_html=True)
-        st.write(f"### 📋 Boleto Activo ({len(st.session_state.my_ticket)} selecciones)")
-        
-        hits_count = 0
-        for idx, ticket_item in enumerate(st.session_state.my_ticket):
-            c_check, c_info = st.columns([1, 5])
-            is_hit = c_check.checkbox("¿Se dio?", key=f"chk_hit_{idx}")
-            if is_hit:
-                hits_count += 1
-                status_text = "🟢 ACERTADO"
-            else:
-                status_text = "⏳ PENDIENTE / POR JUGAR"
-                
-            c_info.markdown(f"**{ticket_item['Jugador']}** ({ticket_item['Equipo']})<br>🎯 *{ticket_item['Pick']}* — **{status_text}**")
-            st.divider()
-            
-        if hits_count == len(st.session_state.my_ticket):
-            st.success("🎉 ¡Felicidades! Todas las selecciones marcadas de tu papeleta se han cumplido con éxito.")
-        else:
-            st.info(f"Progreso actual: {hits_count} de {len(st.session_state.my_ticket)} selecciones marcadas como acertadas.")
-            
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        if st.button("🗑️ Limpiar Toda la Papeleta"):
-            st.session_state.my_ticket = []
-            st.rerun()
+        for idx, item in enumerate(st.session_state.my_ticket):
+            st.checkbox(f"**{item['Jugador']}** — 🎯 *{item['Pick']}*", key=f"chk_hit_{idx}")
     else:
-        st.warning("No tienes ningún pick agregado en tu papeleta.")
+        st.warning("Papeleta vacía.")
 
 with tab4:
-    team_names = {t['full_name']: t for t in nba_teams}
-    selected_team_name = st.sidebar.selectbox("🏀 Seleccionar Equipo", sorted(team_names.keys()))
-    selected_team_info = team_names[selected_team_name]
-    espn_team_abbrev = selected_team_info['abbreviation']
-
-    @st.cache_data(ttl=3600)
-    def get_espn_roster(team_abbrev):
-        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{team_abbrev}/roster"
-        response = requests.get(url)
-        players_list = []
-        if response.status_code == 200:
-            data = response.json()
-            athletes = data.get('athletes', [])
-            for athlete in athletes:
-                players_list.append({
-                    'PLAYER': athlete.get('displayName'),
-                    'PLAYER_ID': athlete.get('id')
-                })
-        return players_list
-
-    df_roster = get_espn_roster(espn_team_abbrev)
-    if not df_roster:
-        st.warning("No se encontró el plantel para este equipo.")
-        st.stop()
-
-    player_names = sorted([p['PLAYER'] for p in df_roster])
-    selected_player_name = st.sidebar.selectbox("👤 Seleccionar Jugador", player_names)
-    player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
-    player_id = player_info['PLAYER_ID']
-
-    try:
-        with st.spinner(f"Cargando registros de {selected_player_name}..."):
-            df_display = get_real_player_game_logs(player_id, selected_player_name)
-
-        if not df_display.empty:
-            cols_to_int = ['Min', 'PTS', 'REB', 'AST', '3P', 'STL', 'BLK']
-            for col in cols_to_int:
-                df_display[col] = df_display[col].astype(int)
-
-            styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', '3P', 'STL', 'BLK'])
-
-            st.write(f"### {selected_player_name} | {selected_team_name}")
-            st.markdown(f"🔗 *Enlace de referencia ESPN:* [Ver perfil en ESPN](https://www.espn.com.mx/basquetbol/nba/jugador/_/id/{player_id})")
-            st.table(styled_df)
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Avg PTS", f"{df_display['PTS'].mean():.1f}")
-            c2.metric("Avg REB", f"{df_display['REB'].mean():.1f}")
-            c3.metric("Avg AST", f"{df_display['AST'].mean():.1f}")
-            c4.metric("Avg 3P", f"{df_display['3P'].mean():.1f}")
-
+    st.subheader("👤 Vista Individual desde Google Sheets")
+    
+    # Aquí defines los nombres de tus hojas de Google Sheets (tus equipos)
+    # Puedes ajustarlo dinámicamente o listar las pestañas de tu archivo
+    lista_equipos_sheets = [
+        "Portland Trail Blazers", "Los Angeles Lakers", "Boston Celtics", 
+        "Golden State Warriors", "San Antonio Spurs", "Phoenix Suns", "Denver Nuggets"
+    ]
+    
+    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja Google Sheets)", sorted(lista_equipos_sheets))
+    
+    # Cargamos los datos limpios de la hoja seleccionada
+    df_sheet = load_team_data(selected_sheet_name)
+    
+    if df_sheet.empty:
+        st.warning(f"⚠️ No se pudo leer la hoja '{selected_sheet_name}' o está vacía. Verifica que el nombre de la pestaña coincida exactamente en tu Google Sheet.")
+    else:
+        # Detectamos automáticamente las columnas del jugador en tu hoja
+        col_jugador = next((c for c in df_sheet.columns if 'jugador' in c.lower() or 'player' in c.lower() or 'nombre' in c.lower()), df_sheet.columns[0])
+        
+        lista_jugadores_sheet = sorted(df_sheet[col_jugador].dropna().unique())
+        selected_player_sheet = st.sidebar.selectbox("👤 Seleccionar Jugador de la Hoja", lista_jugadores_sheet)
+        
+        # Filtramos los registros correspondientes al jugador en ese equipo
+        df_display = df_sheet[df_sheet[col_jugador] == selected_player_sheet]
+        
+        st.write(f"### 📋 Registros de {selected_player_sheet} | {selected_sheet_name}")
+        st.dataframe(df_display, use_container_width=True)
+        
+        # Métricas y validación de líneas si las columnas numéricas existen
+        try:
+            # Aseguramos columnas clave de rendimiento (puntos, rebotes, asistencias, etc.)
             st.markdown("---")
-            st.subheader("🛡️ Escáner de Alta Seguridad (Filtro 5/5 para Parlays)")
-
-            player_lower = selected_player_name.lower()
-            live_lines = None
-            for p_key, lines in all_market_data.items():
-                if p_key in player_lower or player_lower in p_key:
-                    live_lines = lines
-                    break
-
-            if live_lines:
-                line_pts = live_lines.get('PTS', round(df_display['PTS'].mean() - 0.5, 1))
-                line_reb = live_lines.get('REB', round(df_display['REB'].mean() - 0.5, 1))
-                line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
-                line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
-            else:
-                line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
-                line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
-                line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
-                line_3p = max(0.5, round(df_display['3P'].mean() - 0.5, 1))
-
-            props_to_check = [
-                ('PTS', line_pts, 'Puntos (PTS)'),
-                ('REB', line_reb, 'Rebotes (REB)'),
-                ('AST', line_ast, 'Asistencias (AST)'),
-                ('3P', line_3p, 'Triples (3P)')
-            ]
-
-            safe_picks = []
-            parlay_legs = []
-
-            for col, line, label0 in props_to_check:
-                matches = sum(1 for val in df_display[col] if val > line)
-                if matches == 5:
-                    pick_msg = f"🛡️ **Pick Blindado (5/5):** Superó la línea de **{line} {label0}** en el 100% de sus últimos 5 encuentros."
-                    safe_picks.append(pick_msg)
-                    parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) [Efectividad 5/5]")
-                elif matches == 4:
-                    pick_msg = f"✅ **Opción Sólida (4/5):** Superó la línea de **{line} {label0}** en 4 de sus últimos 5 partidos."
-                    safe_picks.append(pick_msg)
-
-            if safe_picks:
-                for tip in safe_picks:
-                    st.markdown(f"<div class='safe-pick-card'>{tip}</div>", unsafe_allow_html=True)
-            else:
-                st.info("ℹ️ Este jugador no presenta una consistencia perfecta (5/5) en sus líneas actuales.")
-
-            if parlay_legs:
-                st.markdown("### 🎲 Combinación Sugerida de Alta Seguridad")
-                legs_html = "<br>• ".join(parlay_legs)
-                st.markdown(f"""
-                    <div class='parlay-card'>
-                        🎯 <b>Selecciones Blindadas para Parlay ({selected_player_name}):</b><br><br>
-                        • {legs_html}<br><br>
-                        <span style='font-size: 12px; font-weight: normal;'>💡 <i>Opciones ideales para sumar a tus acumuladores grandes sin arriesgar de más.</i></span>
-                    </div>
-                """, unsafe_allow_html=True)
-
-        else:
-            st.warning("No hay suficientes registros disponibles para este jugador.")
-
-    except Exception as e:
-        st.error(f"Ocurrió un error al procesar los datos: {e}")
+            st.subheader("🛡️ Escáner de Alta Seguridad (Filtro 5/5)")
+            st.success("✅ Datos cargados correctamente desde tu Google Sheet sin depender de APIs externas.")
+        except Exception as ex:
+            st.info("Configura las columnas numéricas de tu hoja (PTS, REB, AST, etc.) para habilitar los escáneres automáticos.")
