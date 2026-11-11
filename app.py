@@ -59,17 +59,19 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# --- CONEXIÓN A GOOGLE SHEETS CON HEADER=NONE PARA LEER TODO EL BLOQUE ---
+# --- CONEXIÓN A GOOGLE SHEETS 100% DINÁMICA POR PESTAÑA ---
 @st.cache_data(ttl=600)
 def load_team_raw_data(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
+        # Forzamos la lectura específica de la pestaña seleccionada sin caché interna heredada
         df = conn.read(worksheet=sheet_name, ttl=0, header=None)
         if not df.empty:
             return df, None
     except Exception as e:
         try:
             sheet_url = "https://docs.google.com/spreadsheets/d/1r7GvrxEB4dGcjM8vsbh0Q8jSdQDeIT5lBala7v3wq0E/edit"
+            # El parámetro &sheet= asegura que exporte exclusivamente la hoja solicitada en el menú
             csv_url = sheet_url.replace('/edit', f'/gviz/tq?tqx=out:csv&sheet={sheet_name}')
             df = pd.read_csv(csv_url, header=None)
             if not df.empty:
@@ -90,22 +92,18 @@ def parse_player_blocks(df_raw):
     for idx, row in df_clean.iterrows():
         val_col0 = str(row.iloc[0]).strip()
         
-        # Omitir celdas vacías o NaN
         if not val_col0 or val_col0.lower() in ['nan', 'none']:
             continue
             
-        # Detectar la fila de encabezados de estadísticas ('Puntos', 'Points', etc.)
         if val_col0.lower() in ['puntos', 'points', 'triples', 'rebotes']:
             header_found = True
             continue
             
-        # Si ya encontramos el encabezado y el primer valor es un número, es una fila de estadísticas de partido
         first_val = val_col0.replace('.', '', 1)
         if current_player and header_found and first_val.isdigit():
             current_rows.append(row.values)
             continue
             
-        # Si tiene texto y no es un número, es un NUEVO JUGADOR
         if not first_val.isdigit() and val_col0.lower() not in ['puntos', 'points', 'triples', 'rebotes', 'asistencias', 'robos', 'bloqueos']:
             if current_player and current_rows:
                 df_p = pd.DataFrame(current_rows)
@@ -115,7 +113,6 @@ def parse_player_blocks(df_raw):
             current_rows = []
             header_found = False
             
-    # Guardar el último jugador del recorrido
     if current_player and current_rows:
         df_p = pd.DataFrame(current_rows)
         if not df_p.empty:
@@ -366,14 +363,16 @@ with tab4:
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
+    # Cada vez que cambias de equipo, se pasa el nombre exacto al parámetro worksheet de la función
     df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
     if error_msg:
         st.error(f"❌ Error al conectar o leer la hoja '{selected_sheet_name}': `{error_msg}`")
+        st.info(f"💡 Tip: Verifica que en tu Google Sheet exista una pestaña creada exactamente con el nombre **'{selected_sheet_name}'**.")
     elif df_raw.empty:
         st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o aún no tiene datos cargados.")
     else:
-        # Parseamos los bloques verticales correctamente
+        # Parseamos los bloques verticales para los jugadores de este equipo en específico
         players_dict = parse_player_blocks(df_raw)
         
         if not players_dict:
