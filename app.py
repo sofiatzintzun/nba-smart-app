@@ -52,7 +52,7 @@ st.markdown("""
         margin-bottom: 8px;
         font-size: 14px;
     }
-    /* Estilo de Tarjeta para los Partidos */
+    /* Estilo de Tarjeta para los Partidos (Nombres en BLANCO puro) */
     .match-card {
         background-color: #161b22;
         border: 1px solid #30363d;
@@ -60,6 +60,12 @@ st.markdown("""
         border-radius: 12px;
         margin-bottom: 15px;
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        color: #ffffff !important;
+    }
+    .team-name {
+        color: #ffffff !important;
+        font-size: 16px !important;
+        font-weight: bold !important;
     }
     .parlay-card {
         background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
@@ -121,7 +127,40 @@ if not nba_teams:
 
 team_dict_by_abbrev = {t['abbreviation']: t for t in nba_teams}
 
-# 1.1 Obtener los partidos detallados para el DÍA DE HOY en ESPN con logos y fechas en español
+# Función para traducir los estados y horarios de inglés a español
+def traducir_horario_espanol(detail_str):
+    if not detail_str:
+        return "Horario por confirmar"
+    
+    # Traducciones comunes que arroja ESPN
+    traducciones = {
+        "Final": "Finalizado",
+        "Halftime": "Medio Tiempo",
+        "Delayed": "Demorado",
+        "Postponed": "Pospuesto",
+        "at": "vs"
+    }
+    
+    # Reemplazar días de la semana y meses si vienen en inglés
+    texto = detail_str
+    dias_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+    
+    meses_en = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+    meses_es = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    
+    for en, es in zip(dias_en, dias_es):
+        texto = texto.replace(en, es)
+    for en, es in zip(meses_en, meses_es):
+        texto = texto.replace(en, es)
+        
+    texto = texto.replace("th", "").replace("st", "").replace("nd", "").replace("rd", "")
+    texto = texto.replace("at ", " vs ")
+    texto = texto.replace("Final", "Finalizado")
+    
+    return texto
+
+# 1.1 Obtener los partidos detallados para el DÍA DE HOY en ESPN
 @st.cache_data(ttl=1800)
 def get_todays_matchups():
     today_str = datetime.now().strftime("%Y%m%d")
@@ -129,20 +168,19 @@ def get_todays_matchups():
     response = requests.get(url)
     matchups_list = []
     
-    # Formatear la fecha actual amigable en español
     fecha_formateada = datetime.now().strftime("%A, %d de %B de %Y").capitalize()
     
     if response.status_code == 200:
         data = response.json()
         for event in data.get('events', []):
             status_detail = event.get('status', {}).get('type', {}).get('detail', '')
-            teams_in_game = []
+            status_traducido = traducir_horario_espanol(status_detail)
             
+            teams_in_game = []
             for competition in event.get('competitions', []):
                 for competitor in competition.get('competitors', []):
                     team_elem = competitor.get('team', {})
                     abbrev = team_elem.get('abbreviation')
-                    # Buscamos el logo oficial en nuestro diccionario de equipos
                     logo_url = team_dict_by_abbrev.get(abbrev, {}).get('logo', '')
                     teams_in_game.append({
                         'name': team_elem.get('displayName'),
@@ -152,8 +190,8 @@ def get_todays_matchups():
             if len(teams_in_game) == 2:
                 matchups_list.append({
                     'fecha_es': fecha_formateada,
-                    'time_detail': status_detail,
-                    'team1': teams_in_game[1], # Visitante o Local según orden ESPN
+                    'time_detail': status_traducido,
+                    'team1': teams_in_game[1],
                     'team2': teams_in_game[0]
                 })
     return matchups_list
@@ -288,7 +326,7 @@ def get_player_stats_simulation(player_name):
         })
     return pd.DataFrame(rows)
 
-# --- NAVEGACIÓN PRINCIPAL (AHORA EL CALENDARIO ES LA PRIMERA PESTAÑA) ---
+# --- NAVEGACIÓN PRINCIPAL (CALENDARIO COMO PRIMERA PESTAÑA) ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📅 Calendario y Partidos de Hoy", 
     "🛡️ Escáner General", 
@@ -298,7 +336,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Blindados")
-    st.markdown("Visualiza los enfrentamientos en formato de tarjeta con los logos de los equipos, el estado del partido y las mejores opciones con efectividad de 5/5.")
+    st.markdown("Visualiza los enfrentamientos en formato de tarjeta con los logos de los equipos, el estado del partido en español y las mejores opciones de 5/5.")
 
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy en la cartelera.")
@@ -310,17 +348,17 @@ with tab1:
             t1 = matchup['team1']
             t2 = matchup['team2']
             
-            # Renderizado de la Tarjeta del Partido
+            # Renderizado de la Tarjeta del Partido (Nombres de equipos en BLANCO puro)
             st.markdown(f"""
                 <div class='match-card'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
                         <div style='display: flex; align-items: center; gap: 10px;'>
                             <img src='{t1['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
-                            <b style='font-size: 16px;'>{t1['name']}</b>
+                            <span class='team-name'>{t1['name']}</span>
                         </div>
                         <span style='color: #8b949e; font-weight: bold;'>VS</span>
                         <div style='display: flex; align-items: center; gap: 10px; text-align: right;'>
-                            <b style='font-size: 16px;'>{t2['name']}</b>
+                            <span class='team-name'>{t2['name']}</span>
                             <img src='{t2['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
                         </div>
                     </div>
