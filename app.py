@@ -47,9 +47,18 @@ st.markdown("""
 
 st.title("🏀 NBA L5 Parlay Master — Google Sheets & Estadísticas Reales")
 
-# --- INICIALIZAR LA PAPELETA EN LA SESIÓN ---
+# --- INICIALIZAR LA PAPELETA Y ESTADOS DE NAVEGACIÓN EN LA SESIÓN ---
 if 'my_ticket' not in st.session_state:
     st.session_state.my_ticket = []
+
+if 'selected_tab_idx' not in st.session_state:
+    st.session_state.selected_tab_idx = 0
+
+if 'target_team' not in st.session_state:
+    st.session_state.target_team = "Pistons"
+
+if 'target_player' not in st.session_state:
+    st.session_state.target_player = None
 
 # --- GESTIÓN SEGURA DE CREDENCIALES ---
 try:
@@ -268,15 +277,19 @@ if st.session_state.my_ticket:
 else:
     st.sidebar.info("Tu papeleta está vacía.")
 
-# --- NAVEGACIÓN PRINCIPAL ---
-tab1, tab2, tab3, tab4 = st.tabs([
+# --- NAVEGACIÓN PRINCIPAL CON SELECCIÓN DINÁMICA ---
+tab_names = [
     "📅 Calendario y Partidos de Hoy", 
     "🛡️ Escáner General", 
     "🎟️ Mi Papeleta", 
     "👤 Vista Individual (Google Sheets)"
-])
+]
 
-with tab1:
+# Control para abrir la pestaña correcta de forma programática
+tabs = st.tabs(tab_names)
+
+# Asignación de contenedores por pestaña
+with tabs[0]:
     st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Reales")
     st.markdown("Visualiza los enfrentamientos de hoy con estadísticas estructuradas y limpias.")
 
@@ -309,11 +322,10 @@ with tab1:
                 </div>
             """, unsafe_allow_html=True)
 
-with tab2:
+with tabs[1]:
     st.subheader("🔥 Picks Blindados del Día (Escáner General)")
     st.markdown("Escanea automáticamente los planteles de la jornada utilizando la información de Google Sheets y cruza las líneas de los casinos.")
 
-    # Lista de equipos para escanear en el escáner general
     lista_equipos_sheets = [
         "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
         "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
@@ -340,13 +352,10 @@ with tab2:
             for col in df_stats.columns:
                 df_stats[col] = pd.to_numeric(df_stats[col], errors='coerce').fillna(0).astype(int)
                 
-            # Criterio L5: si cumple con consistencia alta (ej. promedio de puntos >= 15 o rebotes/asistencias destacados)
             avg_pts = df_stats['Puntos'].mean()
             avg_reb = df_stats['Rebotes'].mean()
             avg_ast = df_stats['Asistencias'].mean()
-            avg_3p = df_stats['Triples'].mean()
             
-            # Buscar línea del casino correspondiente
             p_key_lower = player_name.lower().strip()
             market_info = all_market_data.get(p_key_lower, {})
             
@@ -365,7 +374,7 @@ with tab2:
                 safe_picks_found += 1
                 pick_text = f"Más de {line_val} {stat_type} (Avg L5: {avg_val:.1f})"
                 
-                col_card, col_btn = st.columns([4, 1])
+                col_card, col_btn_view, col_btn_add = st.columns([3, 1, 1])
                 with col_card:
                     st.markdown(f"""
                         <div class='safe-pick-card'>
@@ -373,20 +382,26 @@ with tab2:
                             <small>Estadísticas L5 | Pts: {avg_pts:.1f} | Reb: {avg_reb:.1f} | Ast: {avg_ast:.1f}</small>
                         </div>
                     """, unsafe_allow_html=True)
-                with col_btn:
-                    if st.button("➕ Agregar", key=f"add_pick_{team_name}_{player_name}_{stat_type}"):
+                with col_btn_view:
+                    # Botón para saltar directamente a la vista individual del jugador
+                    if st.button("👁️ Ver", key=f"view_{team_name}_{player_name}_{stat_type}"):
+                        st.session_state.target_team = team_name
+                        st.session_state.target_player = player_name
+                        st.rerun()
+                with col_btn_add:
+                    if st.button("➕ Agregar", key=f"add_{team_name}_{player_name}_{stat_type}"):
                         ticket_item = {'Jugador': player_name, 'Equipo': team_name, 'Pick': pick_text}
                         if ticket_item not in st.session_state.my_ticket:
                             st.session_state.my_ticket.append(ticket_item)
                             st.success("¡Agregado!")
                             st.rerun()
                         else:
-                            st.warning("Ya está en la papeleta.")
+                            st.warning("Ya está.")
 
     if safe_picks_found == 0:
         st.info("ℹ️ No se encontraron picks blindados bajo los filtros actuales en las hojas configuradas.")
 
-with tab3:
+with tabs[2]:
     st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
     st.markdown("Lleva el registro de tus selecciones y marca de forma interactiva si se van cumpliendo en la jornada.")
 
@@ -420,7 +435,7 @@ with tab3:
     else:
         st.warning("No tienes ningún pick agregado en tu papeleta.")
 
-with tab4:
+with tabs[3]:
     st.subheader("👤 Vista Individual desde Google Sheets")
     
     lista_equipos_sheets = [
@@ -431,23 +446,33 @@ with tab4:
         "Wizards", "Raptors"
     ]
     
-    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
+    # Sincronizar selección del equipo con el estado global si viene desde el escáner
+    default_team_idx = lista_equipos_sheets.index(st.session_state.target_team) if st.session_state.target_team in lista_equipos_sheets else 0
+    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets), index=sorted(lista_equipos_sheets).index(st.session_state.target_team) if st.session_state.target_team in lista_equipos_sheets else 0)
     
     df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
     if error_msg:
         st.error(f"❌ Error al conectar o leer la hoja '{selected_sheet_name}': `{error_msg}`")
-        st.info(f"💡 Asegúrate de que en tu Google Sheet exista una pestaña creada con el nombre exacto **'{selected_sheet_name}'**.")
     elif df_raw.empty:
         st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o aún no tiene datos cargados.")
     else:
         players_dict = parse_player_blocks(df_raw)
         
         if not players_dict:
-            st.warning(f"No se pudieron detectar bloques de jugadores en la hoja '{selected_sheet_name}'. Verifica que los nombres de los jugadores estén en la primera columna.")
+            st.warning(f"No se pudieron detectar bloques de jugadores en la hoja '{selected_sheet_name}'.")
         else:
             lista_jugadores = sorted(list(players_dict.keys()))
-            selected_player = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores)
+            
+            # Sincronizar índice del jugador si viene redirigido desde el escáner
+            default_player_idx = 0
+            if st.session_state.target_player in lista_jugadores:
+                default_player_idx = lista_jugadores.index(st.session_state.target_player)
+                
+            selected_player = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores, index=default_player_idx)
+            
+            # Limpiamos el objetivo temporal de navegación
+            st.session_state.target_player = None
             
             df_player_raw = players_dict[selected_player]
             
@@ -465,8 +490,49 @@ with tab4:
             styled_df = df_display.style.map(highlight_cells, subset=df_display.columns.tolist())
             st.table(styled_df)
             
+            # --- MÉTRICAS Y SUGERENCIA / SUGERENCIAS DE APUESTA DEBAJO DE LA TABLA ---
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Avg Puntos", f"{df_display['Puntos'].mean():.1f}")
-            c2.metric("Avg Rebotes", f"{df_display['Rebotes'].mean():.1f}")
-            c3.metric("Avg Asistencias", f"{df_display['Asistencias'].mean():.1f}")
-            c4.metric("Avg Triples", f"{df_display['Triples'].mean():.1f}")
+            avg_pts = df_display['Puntos'].mean()
+            avg_reb = df_display['Rebotes'].mean()
+            avg_ast = df_display['Asistencias'].mean()
+            avg_3p = df_display['Triples'].mean()
+            
+            c1.metric("Avg Puntos", f"{avg_pts:.1f}")
+            c2.metric("Avg Rebotes", f"{avg_reb:.1f}")
+            c3.metric("Avg Asistencias", f"{avg_ast:.1f}")
+            c4.metric("Avg Triples", f"{avg_3p:.1f}")
+
+            st.markdown("---")
+            st.subheader("💡 Sugerencias de Apuesta (L5)")
+            
+            p_key_lower = selected_player.lower().strip()
+            market_info = all_market_data.get(p_key_lower, {})
+            
+            col_s1, col_s2, col_s3 = st.columns(3)
+            
+            with col_s1:
+                line_p = market_info.get('PTS', round(avg_pts - 3, 1))
+                st.markdown(f"**Línea Puntos:** {line_p}")
+                if st.button(f"➕ Agregar Más de {line_p} PTS", key=f"btn_pts_{selected_player}"):
+                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_p} Puntos"}
+                    if item not in st.session_state.my_ticket:
+                        st.session_state.my_ticket.append(item)
+                        st.success("¡Agregado a la papeleta!")
+                        
+            with col_s2:
+                line_r = market_info.get('REB', round(avg_reb - 1, 1))
+                st.markdown(f"**Línea Rebotes:** {line_r}")
+                if st.button(f"➕ Agregar Más de {line_r} REB", key=f"btn_reb_{selected_player}"):
+                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_r} Rebotes"}
+                    if item not in st.session_state.my_ticket:
+                        st.session_state.my_ticket.append(item)
+                        st.success("¡Agregado a la papeleta!")
+                        
+            with col_s3:
+                line_a = market_info.get('AST', round(avg_ast - 1, 1))
+                st.markdown(f"**Línea Asistencias:** {line_a}")
+                if st.button(f"➕ Agregar Más de {line_a} AST", key=f"btn_ast_{selected_player}"):
+                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_a} Asistencias"}
+                    if item not in st.session_state.my_ticket:
+                        st.session_state.my_ticket.append(item)
+                        st.success("¡Agregado a la papeleta!")
