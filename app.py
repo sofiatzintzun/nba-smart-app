@@ -3,6 +3,13 @@ import pandas as pd
 import requests
 import random
 from datetime import datetime, time
+import locale
+
+# Intentamos configurar el español para la fecha (si el sistema lo soporta)
+try:
+    locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+except:
+    pass
 
 st.set_page_config(page_title="NBA L5 Parlay Master - Hoy", layout="wide")
 
@@ -236,7 +243,6 @@ with tab1:
             active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_active_abbrevs]
             
             if not active_teams_list:
-                # Si por alguna razón la API de calendario de hoy no devuelve equipos (ej. día sin juegos), usamos todos como respaldo
                 active_teams_list = nba_teams[:10]
             
             for team in active_teams_list:
@@ -247,7 +253,7 @@ with tab1:
                 res = requests.get(url)
                 if res.status_code == 200:
                     athletes = res.json().get('athletes', [])
-                    for athlete in athletes[:5]: # Analizamos los principales jugadores del equipo
+                    for athlete in athletes[:5]:
                         p_name = athlete.get('displayName')
                         df_p = get_player_stats_simulation(p_name)
                         
@@ -272,7 +278,7 @@ with tab1:
                         
                         for col, line_val, lbl in checks:
                             hits = sum(1 for v in df_p[col] if v > line_val)
-                            if hits == 5: # Pick 100% blindado
+                            if hits == 5:
                                 global_blindados.append({
                                     'Jugador': p_name,
                                     'Equipo': t_name,
@@ -280,8 +286,11 @@ with tab1:
                                     'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} ({5}/5 overs)"
                                 })
 
+            # Obtenemos la fecha actual formateada en español
+            fecha_actual_str = datetime.now().strftime("%A, %d de %B de %Y")
+
             if global_blindados:
-                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy!")
+                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy, {fecha_actual_str}!")
                 for item in global_blindados:
                     st.markdown(f"""
                         <div class='safe-pick-card'>
@@ -290,9 +299,9 @@ with tab1:
                         </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy con los umbrales actuales.")
+                st.info(f"No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy, {fecha_actual_str}, con los umbrales actuales.")
     else:
-        st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
+        st.info("Haz clic em el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
 
 with tab2:
     team_names = {t['full_name']: t for t in nba_teams}
