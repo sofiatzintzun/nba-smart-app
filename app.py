@@ -59,15 +59,16 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# --- CONEXIÓN A GOOGLE SHEETS ---
+# --- CONEXIÓN A GOOGLE SHEETS CON CAPTURA DE ERRORES ---
 @st.cache_data(ttl=600)
 def load_team_data(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
+        # Intentamos leer la hoja
         df = conn.read(worksheet=sheet_name, ttl=0)
-        return df
+        return df, None
     except Exception as e:
-        return pd.DataFrame()
+        return pd.DataFrame(), str(e)
 
 # 1. Obtener equipos desde la API de ESPN para la cartelera de hoy
 @st.cache_data(ttl=3600)
@@ -313,11 +314,14 @@ with tab4:
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
-    # Cargamos los datos de la hoja seleccionada
-    df_sheet = load_team_data(selected_sheet_name)
+    # Cargamos los datos y capturamos cualquier error real de conexión
+    df_sheet, error_msg = load_team_data(selected_sheet_name)
     
-    if df_sheet.empty:
-        st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o no se pudo conectar. Verifica en tu archivo de Google Sheets que exista una pestaña llamada exactamente **{selected_sheet_name}** y que el archivo sea público o tenga permisos de lectura.")
+    if error_msg:
+        st.error(f"❌ Error al conectar o leer Google Sheets: `{error_msg}`")
+        st.info("💡 Tip: Verifica que la pestaña exista exactamente con el nombre seleccionado y que el archivo esté compartido como 'Cualquier usuario con el enlace puede ser Lector'.")
+    elif df_sheet.empty:
+        st.warning(f"⚠️ La hoja '{selected_sheet_name}' se conectó pero devolvió un DataFrame vacío. Asegúrate de que la primera fila contenga los encabezados (ej. 'Jugador') y que haya datos debajo.")
     else:
         st.success(f"✅ ¡Conexión exitosa con la hoja: **{selected_sheet_name}**!")
         
