@@ -106,7 +106,13 @@ player_id = player_info['PLAYER_ID']
 # --- MÓDULO DE INTEGRACIÓN CON THE ODDS API (LÍNEAS AUTOMÁTICAS) ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚡ Conexión con The Odds API")
-api_key_input = st.sidebar.text_input("f824e37c9ae1f7dc0d7407059c364573", type="password", help="Si no tienes una, el sistema usará estimaciones automáticas basadas en promedios.")
+
+# API key integrada de forma predeterminada
+api_key_input = st.sidebar.text_input(
+    "API Key de The Odds API:", 
+    value="f824e37c9ae1f7dc0d7407059c364573", 
+    type="password"
+)
 
 @st.cache_data(ttl=900)
 def get_live_market_lines(player_name, api_key):
@@ -131,7 +137,7 @@ def get_live_market_lines(player_name, api_key):
         markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes"
         lines_found = {}
         
-        for event in events[:3]: # Consultamos los partidos más próximos para optimizar cuota
+        for event in events[:3]: 
             event_id = event['id']
             odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
             res_odds = requests.get(odds_url)
@@ -141,7 +147,6 @@ def get_live_market_lines(player_name, api_key):
                     for market in bookmaker.get('markets', []):
                         m_key = market.get('key')
                         for outcome in market.get('outcomes', []):
-                            # Si el nombre del jugador coincide
                             if player_name.lower() in outcome.get('description', '').lower() or player_name.lower() in outcome.get('name', '').lower():
                                 point = outcome.get('point')
                                 if point is not None:
@@ -241,7 +246,7 @@ try:
             line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
             line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
         else:
-            st.info("ℹ️ Usando estimaciones automáticas basadas en promedios recientes del jugador.")
+            st.info("ℹ️ Usando estimaciones automáticas basadas en promedios recientes del jugador (La API no devolvió cuotas activas para este jugador en este momento).")
             line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
             line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
             line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
