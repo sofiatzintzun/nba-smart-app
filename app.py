@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import time
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from nba_api.stats.static import teams, players
-from nba_api.stats.endpoints import playergamelog
+from nba_api.stats.static import teams
+from nba_api.stats.endpoints import leaguedashplayerstats, playergamelog
 
 st.set_page_config(page_title="NBA L5 Tracker", layout="wide")
 
@@ -50,46 +49,41 @@ team_names = {t['full_name']: t['id'] for t in nba_teams}
 selected_team_name = st.sidebar.selectbox("Equipo", sorted(team_names.keys()))
 team_id = team_names[selected_team_name]
 
-# En lugar de usar commonteamroster (que falla), obtenemos todos los jugadores activos 
-# y filtramos los que pertenecen al equipo o usamos una alternativa ligera.
+# Obtenemos todos los jugadores de la liga de un solo golpe para evitar fallos de roster
 @st.cache_data(ttl=3600)
-def get_team_players(team_id):
-    all_players = players.get_players()
-    # Como la lista estática no siempre trae el equipo actual de forma inmediata, 
-    # usaremos una consulta segura o filtraremos por los jugadores activos de la liga.
-    active_players = [p for p in all_players if p['is_active']]
-    return active_players
-
-# Alternativa robusta para obtener jugadores del equipo sin bloquearse
-@st.cache_data(ttl=3600)
-def get_roster_safe(team_id):
-    from nba_api.stats.endpoints import teamroster
-    # Probamos con teamroster clásico o una lista genérica si falla
+def get_league_players():
     try:
-        r = teamroster.TeamRoster(team_id=team_id, season='2026-27', timeout=10)
-        df = r.get_data_frames()[0]
-        if not df.empty:
-            return df[['PLAYER', 'PLAYER_ID']]
-    except:
-        pass
-    
-    # Plan B: Si falla el roster por equipo, traemos jugadores activos generales de respaldo
-    active = players.get_active_players()
-    return pd.DataFrame([{'PLAYER': p['full_name'], 'PLAYER_ID': p['id']} for p in active])
+        dash = leaguedashplayerstats.LeagueDashPlayerStats(season='2026-27', timeout=20)
+        df = dash.get_data_frames()[0]
+        return df
+    except Exception as e:
+        return pd.DataFrame()
 
 try:
-    df_roster = get_roster_safe(team_id)
+    df_league = get_league_players()
+    if df_league.empty:
+        st.error("No se pudieron cargar los datos de la liga. Por favor, intenta de nuevo en unos momentos.")
+        st.stop()
+        
+    # Filtramos los jugadores que pertenecen al equipo seleccionado
+    df_team_players = df_league[df_league['TEAM_ID'] == team_id]
+    
+    if df_team_players.empty:
+        # Fallback por si el ID de equipo no coincide exactamente en el dash
+        df_team_players = df_league.copy()
+        
+    player_names = sorted(df_team_players['PLAYER_NAME'].unique().tolist())
 except Exception as e:
-    st.error("No se pudo cargar la lista de jugadores debido a restricciones de la API de la NBA.")
+    st.error(f"Error procesando la lista de jugadores: {e}")
     st.stop()
 
-if df_roster.empty:
-    st.warning("No hay jugadores disponibles para este equipo.")
+if not player_names:
+    st.warning("No hay jugadores disponibles para este equipo en esta temporada.")
     st.stop()
 
-player_names = sorted(df_roster['PLAYER'].tolist())
 selected_player_name = st.sidebar.selectbox("Jugador", player_names)
-player_id = df_roster[df_roster['PLAYER'] == selected_player_name]['PLAYER_ID'].values[0]
+player_row = df_team_players[df_team_players['PLAYER_NAME'] == selected_player_name].iloc[0]
+player_id = player_row['PLAYER_ID']
 
 @st.cache_data(ttl=3600)
 def get_player_last_5(player_id):
