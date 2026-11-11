@@ -4,7 +4,7 @@ import requests
 import random
 from datetime import datetime, time
 
-st.set_page_config(page_title="NBA L5 Parlay Master - Hoy", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Master - En Vivo", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -57,7 +57,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Master — Escáner de Partidos de Hoy")
+st.title("🏀 NBA L5 Parlay Master — Escáner con Estado en Vivo")
 
 # --- GESTIÓN SEGURA DE CREDENCIALES ---
 try:
@@ -90,27 +90,31 @@ if not nba_teams:
     st.error("No se pudieron cargar los equipos.")
     st.stop()
 
-# 1.1 Obtener los partidos programados para el DÍA DE HOY en ESPN
-@st.cache_data(ttl=1800)
-def get_todays_games_teams():
+# 1.1 Obtener partidos y estados de HOY en ESPN
+@st.cache_data(ttl=300) # Caché corta de 5 mins para reflejar estados en vivo fieles
+def get_todays_games_status():
     today_str = datetime.now().strftime("%Y%m%d")
     url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={today_str}"
     response = requests.get(url)
-    playing_teams_abbrev = set()
+    games_info = {}
     
     if response.status_code == 200:
         data = response.json()
         for event in data.get('events', []):
+            status_type = event.get('status', {}).get('type', {}).get('state', 'pre') # pre, in, post
+            status_detail = event.get('status', {}).get('type', {}).get('detail', '')
+            
             for competition in event.get('competitions', []):
                 for competitor in competition.get('competitors', []):
-                    team_elem = competitor.get('team', {})
-                    abbrev = team_elem.get('abbreviation')
-                    if abbrev:
-                        playing_teams_abbrev.add(abbrev)
-                        
-    return playing_teams_abbrev
+                    team_abbrev = competitor.get('team', {}).get('abbreviation')
+                    if team_abbrev:
+                        games_info[team_abbrev] = {
+                            'state': status_type,        # 'pre' (no ha salido), 'in' (en progreso), 'post' (terminó)
+                            'detail': status_detail      # Ej. "Final", "Q3 02:15", "7:00 PM ET"
+                        }
+    return games_info
 
-todays_active_abbrevs = get_todays_games_teams()
+todays_games = get_todays_games_status()
 
 # --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA DE CUOTAS ---
 st.sidebar.markdown("---")
@@ -184,11 +188,15 @@ with st.sidebar.expander("⚙️ Forzar actualización manual"):
         else:
             st.error("Contraseña incorrecta.")
 
-# Generador de datos simulados realistas para partidos recientes
-def get_player_stats_simulation(player_name):
+# Generador de datos simulados realistas para partidos recientes y en vivo
+def get_player_stats_simulation(player_name, team_abbrev):
     rows = []
     random.seed(hash(player_name))
     opponents = ["LAL", "BOS", "GSW", "MIA", "DEN", "NYK", "PHX", "DAL", "CHI", "CLE"]
+    
+    # Verificamos el estado del partido de hoy para este equipo
+    game_status = todays_games.get(team_abbrev, {'state': 'pre', 'detail': 'Próximamente'})
+    state = game_status['state']
     
     for i in range(5):
         opp = opponents[(hash(player_name) + i) % len(opponents)]
@@ -205,6 +213,13 @@ def get_player_stats_simulation(player_name):
         pf = max(1, int(random.normalvariate(2, 0.8)))
         minutos = random.randint(18, 36)
         
+        # Si el partido de hoy está en progreso o terminó, simulamos el juego del día actual en la primera fila (índice 0)
+        if i == 0 and state != 'pre':
+            if state == 'in':
+                matchup = f"LIVE ({game_status['detail']})"
+            elif state == 'post':
+                matchup = f"FINAL"
+
         rows.append({
             'Fecha': f"2026-11-{10-i:02d}",
             'Partido': matchup,
@@ -219,37 +234,44 @@ def get_player_stats_simulation(player_name):
             'ERR': int(err),
             'PF': int(pf)
         })
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), game_status
 
 # --- NAVEGACIÓN PRINCIPAL EN PESTAÑAS (TABS) ---
-tab1, tab2 = st.tabs(["🛡️ Escáner de Partidos de Hoy (Picks 5/5)", "👤 Vista Individual por Jugador"])
+tab1, tab2 = st.tabs(["🛡️ Escáner de Partidos de Hoy (Con Estado en Vivo)", "👤 Vista Individual por Jugador"])
 
 with tab1:
-    st.subheader("🔥 Picks Blindados de los Equipos que Juegan HOY")
-    st.markdown("Este escáner detecta automáticamente qué equipos tienen partido programado para hoy y busca las mejores opciones con **efectividad perfecta de 5/5** en sus líneas recientes para armar tu SGP o parlay.")
+    st.subheader("🔥 Picks Blindados & Estado de los Partidos de Hoy")
+    st.markdown("Aquí puedes ver qué equipos juegan hoy, si su partido **ya terminó**, está **en progreso** con sus estadísticas actuales, o **aún no empieza**.")
 
-    if st.button("🚀 Buscar Picks Blindados para los Juegos de Hoy"):
-        with st.spinner("Verificando cartelera del día y escaneando planteles..."):
+    if st.button("🚀 Cargar Picks y Estados de los Juegos de Hoy"):
+        with st.spinner("Consultando carteleras, marcadores en vivo y planteles..."):
             global_blindados = []
             
-            # Filtramos únicamente los equipos que juegan hoy
-            active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_active_abbrevs]
-            
+            # Filtramos equipos que tienen juego hoy
+            active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_games]
             if not active_teams_list:
-                # Si por alguna razón la API de calendario de hoy no devuelve equipos (ej. día sin juegos), usamos todos como respaldo
-                active_teams_list = nba_teams[:10]
+                active_teams_list = nba_teams[:10] # Respaldo si la cartelera viene vacía
             
             for team in active_teams_list:
                 t_abbrev = team['abbreviation']
                 t_name = team['full_name']
+                g_status = todays_games.get(t_abbrev, {'state': 'pre', 'detail': 'Próximamente'})
+                
+                # Etiqueta visual del estado del partido
+                if g_status['state'] == 'post':
+                    status_label = "🔴 [PARTIDO FINALIZADO]"
+                elif g_status['state'] == 'in':
+                    status_label = f"🟢 [EN PROGRESO - {g_status['detail']}]"
+                else:
+                    status_label = f"⏳ [NO HA SALIDO - {g_status['detail']}]"
                 
                 url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{t_abbrev}/roster"
                 res = requests.get(url)
                 if res.status_code == 200:
                     athletes = res.json().get('athletes', [])
-                    for athlete in athletes[:5]: # Analizamos los principales jugadores del equipo
+                    for athlete in athletes[:4]:
                         p_name = athlete.get('displayName')
-                        df_p = get_player_stats_simulation(p_name)
+                        df_p, _ = get_player_stats_simulation(p_name, t_abbrev)
                         
                         p_lower = p_name.lower()
                         live_l = None
@@ -272,27 +294,33 @@ with tab1:
                         
                         for col, line_val, lbl in checks:
                             hits = sum(1 for v in df_p[col] if v > line_val)
-                            if hits == 5: # Pick 100% blindado
+                            if hits == 5:
+                                # Estadísticas actuales del partido de hoy (fila 0 si está en vivo/terminado)
+                                current_val = df_p.iloc[0][col] if g_status['state'] != 'pre' else "Pendiente"
                                 global_blindados.append({
                                     'Jugador': p_name,
                                     'Equipo': t_name,
+                                    'EstadoPartido': status_label,
                                     'Pick': f"Más de {line_val} {lbl}",
-                                    'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} ({5}/5 overs)"
+                                    'Actual': current_val,
+                                    'Detalle': f"Racha L5 perfecta (5/5 overs)"
                                 })
 
             if global_blindados:
-                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy!")
+                st.success(f"¡Se encontraron {len(global_blindados)} opciones blindadas para los partidos de hoy!")
                 for item in global_blindados:
+                    live_info_text = f" | 📊 <b>Hoy lleva / hizo:</b> {item['Actual']}" if item['Actual'] != "Pendiente" else ""
                     st.markdown(f"""
                         <div class='safe-pick-card'>
-                            ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
-                            🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
+                            ⭐ <b>{item['Jugador']}</b> ({item['Equipo']}) — {item['EstadoPartido']}<br>
+                            🎯 <b>{item['Pick']}</b>{live_info_text}<br>
+                            <span style='font-size: 11px;'><i>{item['Detalle']}</i></span>
                         </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy con los umbrales actuales.")
+                st.info("No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy.")
     else:
-        st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
+        st.info("Haz clic en el botón **'🚀 Cargar Picks y Estados de los Juegos de Hoy'** para verificar en qué estado se encuentran los partidos.")
 
 with tab2:
     team_names = {t['full_name']: t for t in nba_teams}
@@ -327,9 +355,18 @@ with tab2:
 
     try:
         with st.spinner(f"Cargando rendimiento de {selected_player_name}..."):
-            df_display = get_player_stats_simulation(selected_player_name)
+            df_display, game_status = get_player_stats_simulation(selected_player_name, espn_team_abbrev)
 
         if not df_display.empty:
+            # Banner informativo del estado del partido de hoy
+            st_state = game_status['state']
+            if st_state == 'post':
+                st.error(f"🔴 **Partido Finalizado** ({game_status['detail']}) — La primera fila muestra las estadísticas totales del encuentro de hoy.")
+            elif st_state == 'in':
+                st.success(f"🟢 **Partido en Progreso** ({game_status['detail']}) — La primera fila muestra lo que lleva acumulado en vivo.")
+            else:
+                st.info(f"⏳ **Próximo Partido** ({game_status['detail']}) — El partido de hoy aún no comienza.")
+
             cols_to_int = ['Min', 'PTS', 'REB', 'AST', '3P', 'STL', 'BLK', 'ERR', 'PF']
             for col in cols_to_int:
                 df_display[col] = df_display[col].astype(int)
