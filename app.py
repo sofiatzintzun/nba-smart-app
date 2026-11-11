@@ -33,7 +33,7 @@ st.markdown("""
         color: #ffffff; padding: 12px; border-radius: 8px; border-left: 5px solid #00ff87; margin-bottom: 8px; font-size: 14px;
     }
     .match-card {
-        background-color: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 12px; margin-bottom: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #ffffff !important;
+        background-color: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #ffffff !important;
     }
     .team-name { color: #ffffff !important; font-size: 16px !important; font-weight: bold !important; }
     .parlay-card {
@@ -282,9 +282,25 @@ tabs = st.tabs([
     "👤 Vista Individual (Google Sheets)"
 ])
 
+# Mapeo general de equipos de Google Sheets
+lista_equipos_sheets = [
+    "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
+    "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
+    "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
+    "Magic", "Knicks", "Bulls", "Pacers", "Nets", "Hornets",
+    "Wizards", "Raptors"
+]
+
+def buscar_hoja_equipo(nombre_espn):
+    n_lower = nombre_espn.lower()
+    for hoja in lista_equipos_sheets:
+        if hoja.lower() in n_lower or n_lower in hoja.lower():
+            return hoja
+    return None
+
 with tabs[0]:
-    st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Reales")
-    st.markdown("Visualiza los enfrentamientos de hoy con estadísticas estructuradas y limpias.")
+    st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Sugeridos")
+    st.markdown("Visualiza los enfrentamientos de hoy, consulta los mejores picks de los jugadores involucrados y agrégalos directamente a tu papeleta.")
 
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy.")
@@ -296,6 +312,7 @@ with tabs[0]:
             t1 = matchup['team1']
             t2 = matchup['team2']
             
+            # Contenedor de la tarjeta del partido
             st.markdown(f"""
                 <div class='match-card'>
                     <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
@@ -309,11 +326,71 @@ with tabs[0]:
                             <img src='{t2['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
                         </div>
                     </div>
-                    <div style='text-align: center; color: #58a6ff; font-size: 13px; font-weight: bold; border-top: 1px solid #30363d; padding-top: 8px;'>
+                    <div style='text-align: center; color: #58a6ff; font-size: 13px; font-weight: bold; border-bottom: 1px solid #30363d; padding-bottom: 8px; margin-bottom: 10px;'>
                         Estado / Horario: {matchup['time_detail']}
                     </div>
                 </div>
             """, unsafe_allow_html=True)
+
+            # --- INCORPORAR PICKS DE LOS DOS EQUIPOS EN LA TARJETA ---
+            with st.expander(f"🔥 Ver Sugerencias de Picks para: {t1['name']} vs {t2['name']}", expanded=False):
+                eq_hoja_1 = buscar_hoja_equipo(t1['name'])
+                eq_hoja_2 = buscar_hoja_equipo(t2['name'])
+                
+                teams_to_check = [e for e in [eq_hoja_1, eq_hoja_2] if e is not None]
+                
+                if not teams_to_check:
+                    st.info("No se encontraron hojas configuradas en Google Sheets para estos equipos.")
+                else:
+                    encontro_jugadores = False
+                    for sheet_eq in teams_to_check:
+                        df_raw, err = load_team_raw_data(sheet_eq)
+                        if err or df_raw.empty:
+                            continue
+                        p_dict = parse_player_blocks(df_raw)
+                        if p_dict:
+                            st.markdown(f"**Plantel de {sheet_eq} (L5):**")
+                            for p_name, df_p in p_dict.items():
+                                if df_p.shape[1] < 6:
+                                    continue
+                                df_st = df_p.iloc[:, :6].copy()
+                                df_st.columns = ['Puntos', 'Triples', 'Rebotes', 'Asistencias', 'Robos', 'Bloqueos']
+                                for col in df_st.columns:
+                                    df_st[col] = pd.to_numeric(df_st[col], errors='coerce').fillna(0).astype(int)
+                                
+                                av_pts = df_st['Puntos'].mean()
+                                av_reb = df_st['Rebotes'].mean()
+                                av_ast = df_st['Asistencias'].mean()
+                                
+                                if av_pts >= 14 or av_reb >= 6 or av_ast >= 5:
+                                    encontro_jugadores = True
+                                    m_info = all_market_data.get(p_name.lower().strip(), {})
+                                    
+                                    # Generar sugerencias rápidas
+                                    sugerencias = []
+                                    if av_pts >= 14:
+                                        lp = m_info.get('PTS', round(av_pts - 2.5, 1))
+                                        sugerencias.append((f"Más de {lp} Puntos", av_pts))
+                                    if av_reb >= 6:
+                                        lr = m_info.get('REB', round(av_reb - 1, 1))
+                                        sugerencias.append((f"Más de {lr} Rebotes", av_reb))
+                                    if av_ast >= 5:
+                                        la = m_info.get('AST', round(av_ast - 1, 1))
+                                        sugerencias.append((f"Más de {la} Asistencias", av_ast))
+                                        
+                                    for pick_str, val_avg in sugerencias:
+                                        col_p_info, col_p_btn = st.columns([3, 1])
+                                        col_p_info.text(f"• {p_name}: {pick_str}")
+                                        if col_p_btn.button("➕ Agregar", key=f"card_add_{sheet_eq}_{p_name}_{pick_str}"):
+                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': pick_str}
+                                            if item not in st.session_state.my_ticket:
+                                                st.session_state.my_ticket.append(item)
+                                                st.success("¡Agregado!")
+                                                st.rerun()
+                                            else:
+                                                st.warning("Ya está.")
+                    if not encontro_jugadores:
+                        st.info("No hay suficientes registros analíticos para mostrar picks destacados de estos equipos.")
 
 with tabs[1]:
     st.subheader("🔥 Picks Blindados del Día (Escáner General)")
@@ -322,33 +399,21 @@ with tabs[1]:
     if not todays_matchups:
         st.warning("No hay partidos programados para el día de hoy, por lo que el escáner no muestra jugadores activos.")
     else:
-        # Extraer los nombres de los equipos que juegan hoy según la cartelera de ESPN
         teams_playing_today = set()
         for m in todays_matchups:
             teams_playing_today.add(m['team1']['name'].lower())
             teams_playing_today.add(m['team2']['name'].lower())
-            # Añadir también abreviaturas o fragmentos clave por si acaso
             teams_playing_today.add(m['team1']['abbreviation'].lower())
             teams_playing_today.add(m['team2']['abbreviation'].lower())
-
-        lista_equipos_sheets = [
-            "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
-            "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
-            "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
-            "Magic", "Knicks", "Bulls", "Pacers", "Nets", "Hornets",
-            "Wizards", "Raptors"
-        ]
 
         safe_picks_found = 0
         
         for team_name in lista_equipos_sheets:
-            # Filtro estricto: verificar si el equipo de la hoja juega hoy
-            # (Comparamos si el nombre de la hoja o parte de él coincide con los equipos de la cartelera de hoy)
             t_lower = team_name.lower()
             is_playing = any(t_lower in tp or tp in t_lower for tp in teams_playing_today)
             
             if not is_playing:
-                continue  # Salta los equipos que NO juegan hoy
+                continue
 
             df_raw, err = load_team_raw_data(team_name)
             if err or df_raw.empty:
@@ -450,14 +515,6 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("👤 Vista Individual desde Google Sheets")
     
-    lista_equipos_sheets = [
-        "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
-        "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
-        "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
-        "Magic", "Knicks", "Bulls", "Pacers", "Nets", "Hornets",
-        "Wizards", "Raptors"
-    ]
-    
     sorted_teams = sorted(lista_equipos_sheets)
     default_team_idx = sorted_teams.index(st.session_state.target_team) if st.session_state.target_team in sorted_teams else 0
     
@@ -483,7 +540,6 @@ with tabs[3]:
                 
             selected_player = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores, index=default_player_idx)
             
-            # Limpiamos el objetivo temporal de navegación
             st.session_state.target_player = None
             
             df_player_raw = players_dict[selected_player]
