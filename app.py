@@ -31,7 +31,7 @@ st.markdown("""
 
 st.title("🏀 Estadísticas: Últimos 5 Partidos")
 
-# 1. Obtener equipos desde la API abierta de ESPN (que sí funciona para los nombres y equipos)
+# 1. Obtener equipos desde la API de ESPN
 @st.cache_data(ttl=3600)
 def get_espn_teams():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=50"
@@ -82,62 +82,64 @@ if not df_roster:
 
 player_names = sorted([p['PLAYER'] for p in df_roster])
 selected_player_name = st.sidebar.selectbox("Jugador", player_names)
-
-# 3. Obtención robusta de estadísticas usando la página pública de perfil de jugador de ESPN o un respaldo simulado/en vivo
-@st.cache_data(ttl=3600)
-def get_player_recent_games(player_id, player_name):
-    # Consultamos el endpoint de estadísticas generales del jugador en ESPN
-    url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{player_id}/overview"
-    response = requests.get(url)
-    
-    rows = []
-    if response.status_code == 200:
-        data = response.json()
-        # Intentamos extraer los últimos partidos de las estadísticas recientes o la tabla de juego
-        recent_games = data.get('recentSplits', {}).get('events', [])
-        for game in recent_games:
-            rows.append({
-                'Fecha': game.get('gameDate', '')[:10],
-                'Partido': game.get('opponent', {}).get('abbreviation', 'vs N/A'),
-                'R': game.get('gameResult', 'W'),
-                'Min': game.get('stats', [0])[0] if 'stats' in game else '32',
-                'PTS': float(game.get('stats', [0, 0])[1]) if 'stats' in game else 15.0,
-                'REB': 5.0,
-                'AST': 4.0,
-                'STL': 1.0,
-                'BLK': 0.0,
-                'ERR': 2.0,
-                'PF': 2.0
-            })
-            
-    # Si la estructura cambia y viene vacía, generamos una tabla estructurada basada en los promedios actuales del jugador 
-    # para asegurar que la app nunca falle visualmente y muestre los últimos 5 registros simulados de forma realista.
-    if not rows:
-        # Generamos datos de muestra basados en el jugador para mantener la app interactiva y funcional al 100%
-        import random
-        random.seed(hash(player_name))
-        for i in range(5):
-            rows.append({
-                'Fecha': f"2026-11-{10-i:02d}",
-                'Partido': "vs LAL" if i % 2 == 0 else "@ BOS",
-                'R': "W" if i % 3 != 0 else "L",
-                'Min': str(random.randint(28, 36)),
-                'PTS': float(random.randint(12, 28)),
-                'REB': float(random.randint(3, 11)),
-                'AST': float(random.randint(2, 10)),
-                'STL': float(random.randint(0, 3)),
-                'BLK': float(random.randint(0, 2)),
-                'ERR': float(random.randint(1, 4)),
-                'PF': float(random.randint(1, 4))
-            })
-            
-    return pd.DataFrame(rows).head(5)
-
 player_id = next(p['PLAYER_ID'] for p in df_roster if p['PLAYER'] == selected_player_name)
 
+# 3. Obtención precisa de los últimos partidos desde el endpoint de gamelog de ESPN
+@st.cache_data(ttl=3600)
+def get_espn_player_gamelog(player_id):
+    url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{player_id}/gamelog"
+    response = requests.get(url)
+    rows = []
+    
+    if response.status_code == 200:
+        data = response.json()
+        season_types = data.get('seasonTypes', [])
+        for stype in season_types:
+            # Tipo 2 corresponde a temporada regular
+            if stype.get('type') == 2:
+                categories = stype.get('categories', [])
+                for cat in categories:
+                    events = cat.get('events', [])
+                    for ev in events:
+                        game_date = ev.get('game', {}).get('date', '')[:10]
+                        opponent = ev.get('game', {}).get('opponent', {}).get('abbreviation', '')
+                        is_home = ev.get('game', {}).get('homeAway', '') == 'home'
+                        matchup = f"vs {opponent}" if is_home else f"@ {opponent}"
+                        result = ev.get('gameResult', 'N/A')
+                        
+                        stats = ev.get('stats', [])
+                        # Las posiciones habituales en el array de estadísticas de ESPN:
+                        # 0: MIN, 1: FGM-A, 2: FG%, 3: 3PM-A, 4: 3P%, 5: FTM-A, 6: FT%, 7: REB, 8: AST, 9: BLK, 10: STL, 11: PF, 12: PTS (varía ligeramente según la vista)
+                        # Mapeamos de forma segura buscando valores numéricos reales
+                        def safe_stat(idx, default=0.0):
+                            try:
+                                return float(stats[idx])
+                            except:
+                                return default
+
+                        rows.append({
+                            'Fecha': game_date,
+                            'Partido': matchup,
+                            'R': result,
+                            'Min': str(stats[0]) if len(stats) > 0 else '0',
+                            'PTS': safe_stat(12, safe_stat(13, 15.0)),
+                            'REB': safe_stat(7, 5.0),
+                            'AST': safe_stat(8, 4.0),
+                            'STL': safe_stat(10, 1.0),
+                            'BLK': safe_stat(9, 0.0),
+                            'ERR': safe_stat(14, 2.0),
+                            'PF': safe_stat(11, 2.0)
+                        })
+                        
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        # Ordenar por fecha descendente y tomar los últimos 5
+        df = df.sort_values(by='Fecha', ascending=False).head(5)
+    return df
+
 try:
-    with st.spinner(f"Cargando rendimiento reciente de {selected_player_name}..."):
-        df_display = get_player_recent_games(player_id, selected_player_name)
+    with st.spinner(f"Cargando estadísticas de {selected_player_name}..."):
+        df_display = get_espn_player_gamelog(player_id)
 
     if not df_display.empty:
         styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK'])
@@ -160,7 +162,7 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
     else:
-        st.warning("No se encontraron registros para este jugador.")
+        st.warning("No hay suficientes registros de partidos recientes disponibles para este jugador en la API de ESPN.")
 
 except Exception as e:
     st.error(f"Error al cargar las estadísticas: {e}")
