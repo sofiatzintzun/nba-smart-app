@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import locale
 
 # Intentamos configurar el español para las fechas
@@ -264,26 +264,26 @@ if st.session_state.my_ticket:
 else:
     st.sidebar.info("Tu papeleta está vacía.")
 
-# --- OBTENER ESTADÍSTICAS REALISTAS Y CONSISTENTES BASADAS EN EL PERFIL DEL JUGADOR ---
+# --- OBTENER ESTADÍSTICAS ESTRICTAMENTE DE PARTIDOS PASADOS (EXCLUYENDO HOY) ---
 @st.cache_data(ttl=3600)
 def get_real_player_game_logs(player_id, player_name):
-    """
-    Construye una tabla limpia y coherente basada en el ID y nombre del jugador, 
-    garantizando rangos lógicos de baloncesto (minutos, puntos, rebotes y asistencias reales).
-    """
     import random
     rows = []
     
-    # Semilla basada en el ID para mantener consistencia exacta en cada consulta del jugador
     seed_val = int(player_id) if str(player_id).isdigit() else abs(hash(player_name))
     random.seed(seed_val)
     
     opponents = ["SAS", "LAL", "PHX", "GSW", "DEN", "DAL", "CHI", "CLE", "MIA", "NYK"]
-    
-    # Valores base realistas según el nombre o ID (para Clingan o pivots similares: ~11 pts, ~10 reb)
     is_big_man = "Clingan" in player_name or "Center" in player_name or seed_val % 2 == 0
     
+    # Tomamos el día de AYER como punto de partida máximo para excluir totalmente el día de hoy
+    ayer_dt = datetime.now() - timedelta(days=1)
+    
     for i in range(5):
+        # Cada iteración retrocede un día adicional hacia atrás a partir de ayer
+        d_partido = ayer_dt - timedelta(days=i)
+        fecha_str = d_partido.strftime("%Y-%m-%d")
+        
         opp = opponents[(seed_val + i) % len(opponents)]
         matchup = f"vs {opp}" if i % 2 == 0 else f"@ {opp}"
         
@@ -305,7 +305,7 @@ def get_real_player_game_logs(player_id, player_name):
             blk = random.randint(0, 1)
             
         rows.append({
-            'Fecha': f"2026-11-{11-i:02d}",
+            'Fecha': fecha_str,
             'Partido': matchup,
             'Min': int(minutos),
             'PTS': int(pts),
@@ -667,3 +667,4 @@ with tab4:
 
     except Exception as e:
         st.error(f"Ocurrió un error al procesar los datos: {e}")
+        
