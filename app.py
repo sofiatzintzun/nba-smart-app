@@ -259,9 +259,13 @@ with tab1:
     st.subheader("🔥 Picks Blindados de los Equipos que Juegan HOY")
     st.markdown("Este escáner detecta automáticamente qué equipos tienen partido programado para hoy y busca las mejores opciones con **efectividad perfecta de 5/5**. Puedes agregar tus favoritas directo a tu papeleta.")
 
+    # Guardamos los resultados en session_state para que no se borren al dar clic en agregar
+    if 'global_blindados' not in st.session_state:
+        st.session_state.global_blindados = []
+
     if st.button("🚀 Buscar Picks Blindados para los Juegos de Hoy"):
         with st.spinner("Verificando cartelera del día y escaneando planteles..."):
-            global_blindados = []
+            st.session_state.global_blindados = []
             
             active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_active_abbrevs]
             if not active_teams_list:
@@ -301,7 +305,7 @@ with tab1:
                         for col, line_val, lbl in checks:
                             hits = sum(1 for v in df_p[col] if v > line_val)
                             if hits == 5:
-                                global_blindados.append({
+                                st.session_state.global_blindados.append({
                                     'Jugador': p_name,
                                     'Equipo': t_name,
                                     'Pick': f"Más de {line_val} {lbl}",
@@ -310,32 +314,29 @@ with tab1:
                                     'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} (5/5 overs)"
                                 })
 
-            fecha_actual_str = datetime.now().strftime("%A, %d de %B de %Y")
+    fecha_actual_str = datetime.now().strftime("%A, %d de %B de %Y")
 
-            if global_blindados:
-                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy, {fecha_actual_str}!")
-                
-                for idx, item in enumerate(global_blindados):
-                    col_card1, col_card2 = st.columns([4, 1])
-                    with col_card1:
-                        st.markdown(f"""
-                            <div class='safe-pick-card' style='margin-bottom:0px;'>
-                                ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
-                                🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    with col_card2:
-                        # Botón para agregar a la papeleta
-                        if st.button("➕ Agregar", key=f"add_pick_{idx}"):
-                            # Evitar duplicados
-                            if item not in st.session_state.my_ticket:
-                                st.session_state.my_ticket.append(item)
-                                st.toast(f"¡Agregado a tu papeleta: {item['Jugador']}!", icon="🎟️")
-                            else:
-                                st.toast("Este pick ya está en tu papeleta.", icon="⚠️")
-                    st.write("")
-            else:
-                st.info(f"No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy, {fecha_actual_str}.")
+    if st.session_state.global_blindados:
+        st.success(f"¡Se encontraron {len(st.session_state.global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy, {fecha_actual_str}!")
+        
+        for idx, item in enumerate(st.session_state.global_blindados):
+            col_card1, col_card2 = st.columns([4, 1])
+            with col_card1:
+                st.markdown(f"""
+                    <div class='safe-pick-card' style='margin-bottom:0px;'>
+                        ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
+                        🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col_card2:
+                # Clave única robusta basada en el índice y nombre
+                if st.button("➕ Agregar", key=f"add_pick_{idx}_{item['Jugador']}"):
+                    if item not in st.session_state.my_ticket:
+                        st.session_state.my_ticket.append(item)
+                        st.toast(f"¡Agregado a tu papeleta: {item['Jugador']}!", icon="🎟️")
+                    else:
+                        st.toast("Este pick ya está en tu papeleta.", icon="⚠️")
+            st.write("")
     else:
         st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
 
@@ -347,12 +348,10 @@ with tab2:
         st.markdown("<div class='ticket-box'>", unsafe_allow_html=True)
         st.write(f"### 📋 Boleto Activo ({len(st.session_state.my_ticket)} selecciones)")
         
-        # Simulador de estado del parlay
         hits_count = 0
         
         for idx, ticket_item in enumerate(st.session_state.my_ticket):
             c_check, c_info = st.columns([1, 5])
-            # Casilla de verificación para simular si salió o no salió
             is_hit = c_check.checkbox("¿Se dio?", key=f"chk_hit_{idx}")
             if is_hit:
                 hits_count += 1
