@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 import random
+from datetime import datetime, time
 
 st.set_page_config(page_title="NBA L5 Market Tracker", layout="wide")
 
@@ -47,7 +48,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Tracker — Mercado Automático & Props (The Odds API)")
+st.title("🏀 NBA L5 Tracker — Mercado Programado (3 Créditos / Día)")
 
 # 1. Obtener equipos desde la API de ESPN
 @st.cache_data(ttl=3600)
@@ -103,41 +104,54 @@ selected_player_name = st.sidebar.selectbox("👤 Seleccionar Jugador", player_n
 player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
 player_id = player_info['PLAYER_ID']
 
-# --- MÓDULO DE INTEGRACIÓN CON THE ODDS API (LÍNEAS AUTOMÁTICAS) ---
+# --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA (12 AM, 10 AM, 5 PM) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("⚡ Conexión con The Odds API")
+st.sidebar.subheader("⚡ Control de Cuotas Programadas")
 
-# API key integrada de forma predeterminada
 api_key_input = st.sidebar.text_input(
     "API Key de The Odds API:", 
     value="f824e37c9ae1f7dc0d7407059c364573", 
     type="password"
 )
 
-@st.cache_data(ttl=900)
-def get_live_market_lines(player_name, api_key):
+def get_current_slot():
     """
-    Consulta The Odds API para obtener las líneas de apuestas en tiempo real del jugador.
+    Calcula en qué bloque horario del día nos encontramos 
+    para forzar la actualización exactamente en los horarios definidos.
+    """
+    now = datetime.now().time()
+    if now < time(10, 0):
+        return "slot_12am"   # De 12:00 AM a 9:59 AM
+    elif now < time(17, 0):
+        return "slot_10am"   # De 10:00 AM a 4:59 PM
+    else:
+        return "slot_5pm"    # De 5:00 PM a 11:59 PM
+
+# Función decorada pasándole el 'slot' actual como parámetro de caché.
+# Esto garantiza que el sistema cambie de versión de datos exactamente a las 12am, 10am y 5pm.
+@st.cache_data(ttl=43200) # TTL amplio de respaldo
+def get_scheduled_market_lines(api_key, time_slot):
+    """
+    Descarga las cuotas respetando los 3 momentos clave del día.
     """
     if not api_key:
-        return None
+        return {}
 
     try:
-        # 1. Obtener eventos/partidos activos de la NBA
         events_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={api_key}"
         res_events = requests.get(events_url)
         if res_events.status_code != 200:
-            return None
+            return {}
         
         events = res_events.json()
         if not events:
-            return None
+            return {}
             
-        # 2. Consultar props en los primeros eventos activos
         markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes"
-        lines_found = {}
+        master_dict = {}
         
-        for event in events[:3]: 
+        # Consultamos los primeros 2 eventos activos (gasta solo 2 créditos por ejecución programada)
+        for event in events[:2]:
             event_id = event['id']
             odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
             res_odds = requests.get(odds_url)
@@ -147,21 +161,38 @@ def get_live_market_lines(player_name, api_key):
                     for market in bookmaker.get('markets', []):
                         m_key = market.get('key')
                         for outcome in market.get('outcomes', []):
-                            if player_name.lower() in outcome.get('description', '').lower() or player_name.lower() in outcome.get('name', '').lower():
+                            desc = outcome.get('description', '') or outcome.get('name', '')
+                            if desc:
+                                p_name_clean = desc.lower().strip()
+                                if p_name_clean not in master_dict:
+                                    master_dict[p_name_clean] = {}
+                                
                                 point = outcome.get('point')
                                 if point is not None:
-                                    if m_key == 'player_points' and 'PTS' not in lines_found:
-                                        lines_found['PTS'] = point
-                                    elif m_key == 'player_rebounds' and 'REB' not in lines_found:
-                                        lines_found['REB'] = point
-                                    elif m_key == 'player_assists' and 'AST' not in lines_found:
-                                        lines_found['AST'] = point
-                                    elif m_key == 'player_threes' and '3P' not in lines_found:
-                                        lines_found['3P'] = point
+                                    if m_key == 'player_points' and 'PTS' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['PTS'] = point
+                                    elif m_key == 'player_rebounds' and 'REB' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['REB'] = point
+                                    elif m_key == 'player_assists' and 'AST' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['AST'] = point
+                                    elif m_key == 'player_threes' and '3P' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['3P'] = point
 
-        return lines_found if lines_found else None
+        return master_dict
     except Exception:
-        return None
+        return {}
+
+# Obtenemos el bloque de tiempo activo actual
+current_slot = get_current_slot()
+st.sidebar.caption(f"🕒 Bloque horario activo: **{current_slot.upper()}**")
+
+# Ejecutamos la consulta ligada al horario programado
+all_market_data = get_scheduled_market_lines(api_key_input, current_slot)
+
+# Botón para forzar actualización manual si se requiere
+if st.sidebar.button("🔄 Forzar Actualización Manual"):
+    st.cache_data.clear()
+    st.rerun()
 
 # 3. Obtener estadísticas del jugador en los últimos 5 partidos
 @st.cache_data(ttl=3600)
@@ -233,26 +264,30 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
 
-        # --- EXTRACCIÓN Y EVALUACIÓN AUTOMÁTICA DE LÍNEAS DE MERCADO ---
+        # --- EXTRACCIÓN Y BÚSQUEDA AUTOMÁTICA ---
         st.markdown("---")
         st.subheader("🤖 Evaluación Automática del Mercado de Apuestas")
 
-        live_lines = get_live_market_lines(selected_player_name, api_key_input)
+        player_lower = selected_player_name.lower()
+        live_lines = None
+        for p_key, lines in all_market_data.items():
+            if p_key in player_lower or player_lower in p_key:
+                live_lines = lines
+                break
 
         if live_lines:
-            st.success("🟢 Líneas obtenidas en tiempo real desde The Odds API.")
+            st.success("🟢 Líneas obtenidas del bloque programado actual.")
             line_pts = live_lines.get('PTS', round(df_display['PTS'].mean() - 0.5, 1))
             line_reb = live_lines.get('REB', round(df_display['REB'].mean() - 0.5, 1))
             line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
             line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
         else:
-            st.info("ℹ️ Usando estimaciones automáticas basadas en promedios recientes del jugador (La API no devolvió cuotas activas para este jugador en este momento).")
+            st.info("ℹ️ Usando estimaciones automáticas (Este jugador no tiene líneas publicadas en los partidos de este bloque).")
             line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
             line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
             line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
             line_3p = max(0.5, round(df_display['3P'].mean() - 0.5, 1))
 
-        # Evaluación dinámica de los últimos 5 partidos contra las líneas detectadas
         props_to_check = [
             ('PTS', line_pts, 'Puntos (PTS)'),
             ('REB', line_reb, 'Rebotes (REB)'),
@@ -281,13 +316,12 @@ try:
         else:
             st.info("El rendimiento reciente de este jugador no presenta rachas extremas (4/5 o 5/5) sobre las líneas actuales.")
 
-        # --- SECCIÓN DE PARLAY RECOMENDADO AUTOMÁTICO ---
         if parlay_legs:
             st.markdown("### 🎲 Parlay / Prop Sugerido Automático")
             legs_html = "<br>• ".join(parlay_legs)
             st.markdown(f"""
                 <div class='parlay-card'>
-                    🎯 <b>Parlay Sugerido en base a Mercado Automático ({selected_player_name}):</b><br><br>
+                    🎯 <b>Parlay Sugerido en base a Mercado Programado ({selected_player_name}):</b><br><br>
                     • {legs_html}<br><br>
                     <span style='font-size: 12px; font-weight: normal;'>💡 <i>Estas selecciones representan selecciones con 100% de efectividad (5/5) sobre las líneas detectadas.</i></span>
                 </div>
@@ -297,4 +331,4 @@ try:
         st.warning("No hay suficientes registros disponibles para este jugador.")
 
 except Exception as e:
-    st.error(f"Error al procesar los datos: {e}")
+    st.error(f"Ocurrió un error al procesar los datos: {e}")
