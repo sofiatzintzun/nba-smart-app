@@ -59,19 +59,17 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# --- CONEXIÓN A GOOGLE SHEETS 100% DINÁMICA POR PESTAÑA ---
-@st.cache_data(ttl=600)
+# --- CARGA AISLADA Y DIRECTA POR HOJA ---
+@st.cache_data(ttl=60)
 def load_team_raw_data(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Forzamos la lectura específica de la pestaña seleccionada sin caché interna heredada
         df = conn.read(worksheet=sheet_name, ttl=0, header=None)
         if not df.empty:
             return df, None
     except Exception as e:
         try:
             sheet_url = "https://docs.google.com/spreadsheets/d/1r7GvrxEB4dGcjM8vsbh0Q8jSdQDeIT5lBala7v3wq0E/edit"
-            # El parámetro &sheet= asegura que exporte exclusivamente la hoja solicitada en el menú
             csv_url = sheet_url.replace('/edit', f'/gviz/tq?tqx=out:csv&sheet={sheet_name}')
             df = pd.read_csv(csv_url, header=None)
             if not df.empty:
@@ -80,7 +78,7 @@ def load_team_raw_data(sheet_name):
             return pd.DataFrame(), f"GSheets Error: {str(e)} | CSV Alt Error: {str(alt_e)}"
     return pd.DataFrame(), f"La hoja '{sheet_name}' devolvió datos vacíos o no existe en el documento."
 
-# --- ANALIZADOR DE BLOQUES VERTICALES OPTIMIZADO ---
+# --- ANALIZADOR DE BLOQUES AISLADO ---
 def parse_player_blocks(df_raw):
     players_dict = {}
     current_player = None
@@ -363,16 +361,16 @@ with tab4:
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
-    # Cada vez que cambias de equipo, se pasa el nombre exacto al parámetro worksheet de la función
+    # Cargamos exclusivamente los datos de la hoja seleccionada
     df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
     if error_msg:
         st.error(f"❌ Error al conectar o leer la hoja '{selected_sheet_name}': `{error_msg}`")
-        st.info(f"💡 Tip: Verifica que en tu Google Sheet exista una pestaña creada exactamente con el nombre **'{selected_sheet_name}'**.")
+        st.info(f"💡 Asegúrate de que en tu Google Sheet exista una pestaña creada con el nombre exacto **'{selected_sheet_name}'**.")
     elif df_raw.empty:
         st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o aún no tiene datos cargados.")
     else:
-        # Parseamos los bloques verticales para los jugadores de este equipo en específico
+        # Parseamos los bloques aislados exclusivamente para este equipo
         players_dict = parse_player_blocks(df_raw)
         
         if not players_dict:
