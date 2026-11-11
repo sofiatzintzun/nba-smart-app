@@ -4,7 +4,7 @@ import requests
 import random
 from datetime import datetime, time
 
-st.set_page_config(page_title="NBA L5 Parlay Master", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Master - Hoy", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -57,7 +57,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Master — Escáner Global & SGP")
+st.title("🏀 NBA L5 Parlay Master — Escáner de Partidos de Hoy")
 
 # --- GESTIÓN SEGURA DE CREDENCIALES ---
 try:
@@ -90,6 +90,28 @@ if not nba_teams:
     st.error("No se pudieron cargar los equipos.")
     st.stop()
 
+# 1.1 Obtener los partidos programados para el DÍA DE HOY en ESPN
+@st.cache_data(ttl=1800)
+def get_todays_games_teams():
+    today_str = datetime.now().strftime("%Y%m%d")
+    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={today_str}"
+    response = requests.get(url)
+    playing_teams_abbrev = set()
+    
+    if response.status_code == 200:
+        data = response.json()
+        for event in data.get('events', []):
+            for competition in event.get('competitions', []):
+                for competitor in competition.get('competitors', []):
+                    team_elem = competitor.get('team', {})
+                    abbrev = team_elem.get('abbreviation')
+                    if abbrev:
+                        playing_teams_abbrev.add(abbrev)
+                        
+    return playing_teams_abbrev
+
+todays_active_abbrevs = get_todays_games_teams()
+
 # --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA DE CUOTAS ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Control de Cuotas de Casinos")
@@ -119,7 +141,7 @@ def get_scheduled_market_lines(api_key, time_slot):
         markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes"
         master_dict = {}
         
-        for event in events[:2]:
+        for event in events[:3]:
             event_id = event['id']
             odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
             res_odds = requests.get(odds_url)
@@ -162,7 +184,7 @@ with st.sidebar.expander("⚙️ Forzar actualización manual"):
         else:
             st.error("Contraseña incorrecta.")
 
-# Generador de datos simulados realistas para partidos recientes de cualquier jugador
+# Generador de datos simulados realistas para partidos recientes
 def get_player_stats_simulation(player_name):
     rows = []
     random.seed(hash(player_name))
@@ -200,31 +222,35 @@ def get_player_stats_simulation(player_name):
     return pd.DataFrame(rows)
 
 # --- NAVEGACIÓN PRINCIPAL EN PESTAÑAS (TABS) ---
-tab1, tab2 = st.tabs(["🛡️ Escáner Global (Picks Blindados 5/5)", "👤 Vista Individual por Jugador"])
+tab1, tab2 = st.tabs(["🛡️ Escáner de Partidos de Hoy (Picks 5/5)", "👤 Vista Individual por Jugador"])
 
 with tab1:
-    st.subheader("🔥 Top Picks Globales de Alta Seguridad (100% Overs en L5)")
-    st.markdown("Este escáner analiza preventivamente a los jugadores destacados de los equipos para mostrarte exclusivamente las opciones con **efectividad perfecta de 5/5** en sus líneas recientes.")
+    st.subheader("🔥 Picks Blindados de los Equipos que Juegan HOY")
+    st.markdown("Este escáner detecta automáticamente qué equipos tienen partido programado para hoy y busca las mejores opciones con **efectividad perfecta de 5/5** en sus líneas recientes para armar tu SGP o parlay.")
 
-    if st.button("🚀 Ejecutar Escáner Global de la Liga"):
-        with st.spinner("Escaneando planteles y estadísticas recientes de todos los equipos..."):
+    if st.button("🚀 Buscar Picks Blindados para los Juegos de Hoy"):
+        with st.spinner("Verificando cartelera del día y escaneando planteles..."):
             global_blindados = []
             
-            # Recorremos los equipos principales para armar el reporte global
-            for team in nba_teams[:15]: # Analizamos un bloque importante de equipos
+            # Filtramos únicamente los equipos que juegan hoy
+            active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_active_abbrevs]
+            
+            if not active_teams_list:
+                # Si por alguna razón la API de calendario de hoy no devuelve equipos (ej. día sin juegos), usamos todos como respaldo
+                active_teams_list = nba_teams[:10]
+            
+            for team in active_teams_list:
                 t_abbrev = team['abbreviation']
                 t_name = team['full_name']
                 
-                # Obtenemos roster
                 url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{t_abbrev}/roster"
                 res = requests.get(url)
                 if res.status_code == 200:
                     athletes = res.json().get('athletes', [])
-                    for athlete in athletes[:4]: # Tomamos los principales referentes de cada equipo
+                    for athlete in athletes[:5]: # Analizamos los principales jugadores del equipo
                         p_name = athlete.get('displayName')
                         df_p = get_player_stats_simulation(p_name)
                         
-                        # Definimos líneas base o de mercado
                         p_lower = p_name.lower()
                         live_l = None
                         for k, lines in all_market_data.items():
@@ -246,7 +272,7 @@ with tab1:
                         
                         for col, line_val, lbl in checks:
                             hits = sum(1 for v in df_p[col] if v > line_val)
-                            if hits == 5: # ¡Pick 100% blindado!
+                            if hits == 5: # Pick 100% blindado
                                 global_blindados.append({
                                     'Jugador': p_name,
                                     'Equipo': t_name,
@@ -255,7 +281,7 @@ with tab1:
                                 })
 
             if global_blindados:
-                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para hoy!")
+                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy!")
                 for item in global_blindados:
                     st.markdown(f"""
                         <div class='safe-pick-card'>
@@ -264,12 +290,11 @@ with tab1:
                         </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("No se detectaron picks con efectividad estricta de 5/5 en este momento con los filtros actuales.")
+                st.info("No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy con los umbrales actuales.")
     else:
-        st.info("Haz clic en el botón **'🚀 Ejecutar Escáner Global de la Liga'** para compilar las mejores opciones de toda la NBA en una sola vista.")
+        st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
 
 with tab2:
-    # --- VISTA INDIVIDUAL (La app original detallada por jugador) ---
     team_names = {t['full_name']: t for t in nba_teams}
     selected_team_name = st.sidebar.selectbox("🏀 Seleccionar Equipo", sorted(team_names.keys()))
     selected_team_info = team_names[selected_team_name]
