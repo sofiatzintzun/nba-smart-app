@@ -1,5 +1,8 @@
 import streamlit as st
 import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from nba_api.stats.static import teams
 from nba_api.stats.endpoints import playergamelog, commonteamroster
 
@@ -32,29 +35,46 @@ st.markdown("""
 
 st.title("🏀 Estadísticas: Últimos 5 Partidos")
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def get_all_teams():
     return teams.get_teams()
 
-nba_teams = get_all_teams()
+try:
+    nba_teams = get_all_teams()
+except Exception as e:
+    st.error("Error al conectar con la API de la NBA para obtener los equipos. Por favor, recarga la página.")
+    st.stop()
+
 team_names = {t['full_name']: t['id'] for t in nba_teams}
 
 selected_team_name = st.sidebar.selectbox("Equipo", sorted(team_names.keys()))
 team_id = team_names[selected_team_name]
 
-@st.cache_data
+@st.cache_data(ttl=3600)
 def get_team_roster(team_id):
-    roster = commonteamroster.CommonTeamRoster(team_id=team_id)
+    roster = commonteamroster.CommonTeamRoster(team_id=team_id, timeout=15)
     return roster.get_data_frames()[0]
 
-df_roster = get_team_roster(team_id)
+try:
+    df_roster = get_team_roster(team_id)
+except Exception as e:
+    st.error(f"No se pudo cargar el plantel del equipo seleccionado debido a un retraso en la red (Timeout). Intenta de nuevo en unos segundos.")
+    st.stop()
+
 player_names = sorted(df_roster['PLAYER'].tolist())
 selected_player_name = st.sidebar.selectbox("Jugador", player_names)
 player_id = df_roster[df_roster['PLAYER'] == selected_player_name]['PLAYER_ID'].values[0]
 
 @st.cache_data(ttl=3600)
 def get_player_last_5(player_id):
-    log = playergamelog.PlayerGameLog(player_id=player_id, season='2025-26')
+    # Configuración de sesión con reintentos para mitigar errores de ReadTimeout
+    session = requests.Session()
+    retry = Retry(connect=3, read=3, backoff_factor=1)
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    
+    log = playergamelog.PlayerGameLog(player_id=player_id, season='2025-26', timeout=15)
     return log.get_data_frames()[0].head(5)
 
 try:
@@ -71,7 +91,7 @@ try:
         df_display = df_raw[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
         
-        # 2. Aplicar estilo celda por celda (Cambiado applymap por map)
+        # 2. Aplicar estilo celda por celda (Usando .map en lugar de .applymap)
         styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK', 'TC', '3P'])
 
         # 3. Renderizar con st.table
@@ -96,5 +116,7 @@ try:
     else:
         st.warning("No hay registros de partidos disponibles para este jugador en la temporada seleccionada.")
 
+except requests.exceptions.ReadTimeout:
+    st.error("⏰ La solicitud a la API de la NBA ha tardado demasiado (Timeout). Por favor, cambia de jugador o recarga la página para reintentarlo.")
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Ocurrió un error inesperado: {e}")
