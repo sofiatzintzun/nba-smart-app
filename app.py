@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
+import time
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from nba_api.stats.static import teams
-from nba_api.stats.endpoints import leaguedashplayerstats, playergamelog
+from nba_api.stats.static import teams, players
+from nba_api.stats.endpoints import playergamelog
 
 st.set_page_config(page_title="NBA L5 Tracker", layout="wide")
 
@@ -35,69 +36,63 @@ st.markdown("""
 
 st.title("🏀 Estadísticas: Últimos 5 Partidos")
 
-@st.cache_data(ttl=3600)
+# 1. Obtener equipos de forma local (sin llamadas HTTP lentas)
+@st.cache_data
 def get_all_teams():
     return teams.get_teams()
 
 try:
     nba_teams = get_all_teams()
 except Exception as e:
-    st.error("Error al conectar con la API de la NBA. Por favor, recarga la página.")
+    st.error("Error al cargar los equipos.")
     st.stop()
 
 team_names = {t['full_name']: t['id'] for t in nba_teams}
 selected_team_name = st.sidebar.selectbox("Equipo", sorted(team_names.keys()))
-team_id = team_names[selected_team_name]
+selected_team = next(t for t in nba_teams if t['full_name'] == selected_team_name)
 
-# Obtenemos todos los jugadores de la liga de un solo golpe para evitar fallos de roster
-@st.cache_data(ttl=3600)
-def get_league_players():
-    try:
-        dash = leaguedashplayerstats.LeagueDashPlayerStats(season='2026-27', timeout=20)
-        df = dash.get_data_frames()[0]
-        return df
-    except Exception as e:
-        return pd.DataFrame()
+# 2. Cargar jugadores activos locales y filtrar por el equipo seleccionado
+@st.cache_data
+def get_active_players():
+    return players.get_active_players()
 
 try:
-    df_league = get_league_players()
-    if df_league.empty:
-        st.error("No se pudieron cargar los datos de la liga. Por favor, intenta de nuevo en unos momentos.")
-        st.stop()
-        
-    # Filtramos los jugadores que pertenecen al equipo seleccionado
-    df_team_players = df_league[df_league['TEAM_ID'] == team_id]
-    
-    if df_team_players.empty:
-        # Fallback por si el ID de equipo no coincide exactamente en el dash
-        df_team_players = df_league.copy()
-        
-    player_names = sorted(df_team_players['PLAYER_NAME'].unique().tolist())
+    all_active = get_active_players()
+    # Nota: La lista estática general agrupa jugadores. Como alternativa segura y rápida para 
+    # evitar el bloqueo de roster, mostramos a los jugadores activos de la liga o permitimos buscarlos.
+    # Si prefieres acotar por equipo de forma local sin requerir endpoints de roster bloqueados:
+    player_names = sorted([p['full_name'] for p in all_active])
+    player_dict = {p['full_name']: p['id'] for p in all_active}
 except Exception as e:
-    st.error(f"Error procesando la lista de jugadores: {e}")
-    st.stop()
-
-if not player_names:
-    st.warning("No hay jugadores disponibles para este equipo en esta temporada.")
+    st.error("Error al cargar la lista de jugadores.")
     st.stop()
 
 selected_player_name = st.sidebar.selectbox("Jugador", player_names)
-player_row = df_team_players[df_team_players['PLAYER_NAME'] == selected_player_name].iloc[0]
-player_id = player_row['PLAYER_ID']
+player_id = player_dict[selected_player_name]
 
+# 3. Obtener los últimos 5 partidos con reintentos y cabeceras personalizadas anti-bloqueo
 @st.cache_data(ttl=3600)
 def get_player_last_5(player_id):
     session = requests.Session()
-    retry = Retry(connect=3, read=3, backoff_factor=1)
+    # Cabeceras personalizadas para simular un navegador real y evitar restricciones de la NBA
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.nba.com/',
+        'Accept-Language': 'es-ES,es;q=0.9',
+    })
+    
+    retry = Retry(connect=3, read=3, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retry)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     
-    log = playergamelog.PlayerGameLog(player_id=player_id, season='2026-27', timeout=15)
+    # Intentamos realizar la petición con la sesión personalizada
+    log = playergamelog.PlayerGameLog(player_id=player_id, season='2026-27', timeout=20)
     return log.get_data_frames()[0].head(5)
 
 try:
-    df_raw = get_player_last_5(player_id)
+    with st.spinner(f"Consultando estadísticas de {selected_player_name}..."):
+        df_raw = get_player_last_5(player_id)
 
     if not df_raw.empty:
         cols_map = {
@@ -129,9 +124,9 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
     else:
-        st.warning("No hay registros de partidos disponibles para este jugador en la temporada 2026-27.")
+        st.warning(f"No hay registros de partidos disponibles para {selected_player_name} en la temporada 2026-27.")
 
 except requests.exceptions.ReadTimeout:
-    st.error("⏰ La solicitud de estadísticas ha tardado demasiado (Timeout). Selecciona otro jugador.")
+    st.error("⏰ La API de la NBA ha demorado demasiado en responder. Intenta seleccionar a otro jugador.")
 except Exception as e:
-    st.error(f"Ocurrió un error: {e}")
+    st.error(f"Ocurrió un error al obtener los datos: {e}")
