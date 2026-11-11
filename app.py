@@ -86,7 +86,7 @@ selected_player_name = st.sidebar.selectbox("Jugador", player_names)
 player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
 player_id = player_info['PLAYER_ID']
 
-# 3. Obtener estadísticas del jugador
+# 3. Obtener estadísticas del jugador incluyendo triples (3P)
 @st.cache_data(ttl=3600)
 def get_player_stats_data(player_id, player_name):
     rows = []
@@ -102,6 +102,7 @@ def get_player_stats_data(player_id, player_name):
         pts = max(2, int(random.normalvariate(14, 5)))
         reb = max(1, int(random.normalvariate(5, 2)))
         ast = max(0, int(random.normalvariate(4, 2)))
+        fg3 = max(0, int(random.normalvariate(2, 1.2))) # Triples anotados
         stl = max(0, int(random.normalvariate(1, 0.8)))
         blk = max(0, int(random.normalvariate(0.5, 0.6)))
         err = max(0, int(random.normalvariate(1.5, 0.8)))
@@ -116,6 +117,7 @@ def get_player_stats_data(player_id, player_name):
             'PTS': int(pts),
             'REB': int(reb),
             'AST': int(ast),
+            '3P': int(fg3),  # <-- Columna de Triples agregada
             'STL': int(stl),
             'BLK': int(blk),
             'ERR': int(err),
@@ -129,18 +131,18 @@ try:
         df_display = get_player_stats_data(player_id, selected_player_name)
 
     if not df_display.empty:
-        # Aseguramos que las columnas estadísticas sean enteras para quitar los decimales
-        cols_to_int = ['Min', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'ERR', 'PF']
+        # Aseguramos que las columnas estadísticas sean enteras
+        cols_to_int = ['Min', 'PTS', 'REB', 'AST', '3P', 'STL', 'BLK', 'ERR', 'PF']
         for col in cols_to_int:
             df_display[col] = df_display[col].astype(int)
 
-        styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK'])
+        styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', '3P', 'STL', 'BLK'])
 
         st.write(f"### {selected_player_name} | {selected_team_name}")
         st.table(styled_df)
 
         def count_doubles(row):
-            stats = [row.get('PTS', 0), row.get('REB', 0), row.get('AST', 0), row.get('STL', 0), row.get('BLK', 0)]
+            stats = [row.get('PTS', 0), row.get('REB', 0), row.get('AST', 0), row.get('3P', 0), row.get('STL', 0), row.get('BLK', 0)]
             return sum(1 for s in stats if s >= 10)
 
         df_display['doubles_count'] = df_display.apply(count_doubles, axis=1)
