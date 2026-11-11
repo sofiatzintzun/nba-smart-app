@@ -59,16 +59,26 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# --- CONEXIÓN A GOOGLE SHEETS CON CAPTURA DE ERRORES ---
+# --- CONEXIÓN A GOOGLE SHEETS ULTRA ROBUSTA ---
 @st.cache_data(ttl=600)
 def load_team_data(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
-        # Intentamos leer la hoja
         df = conn.read(worksheet=sheet_name, ttl=0)
-        return df, None
+        if not df.empty:
+            return df, None
     except Exception as e:
-        return pd.DataFrame(), str(e)
+        # Método alternativo infalible si el archivo es público (Lector)
+        try:
+            sheet_url = "https://docs.google.com/spreadsheets/d/1r7GvrxEB4dGcjM8vsbh0Q8jSdQDeIT5lBala7v3wq0E/edit"
+            csv_url = sheet_url.replace('/edit', f'/gviz/tq?tqx=out:csv&sheet={sheet_name}')
+            df = pd.read_csv(csv_url)
+            if not df.empty:
+                return df, None
+        except Exception as alt_e:
+            return pd.DataFrame(), f"GSheets Error: {str(e)} | CSV Alt Error: {str(alt_e)}"
+            
+    return pd.DataFrame(), "La hoja devolvió datos vacíos o no se pudo acceder."
 
 # 1. Obtener equipos desde la API de ESPN para la cartelera de hoy
 @st.cache_data(ttl=3600)
@@ -314,7 +324,7 @@ with tab4:
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
-    # Cargamos los datos y capturamos cualquier error real de conexión
+    # Cargamos los datos usando nuestra función robusta de doble capa
     df_sheet, error_msg = load_team_data(selected_sheet_name)
     
     if error_msg:
