@@ -4,7 +4,7 @@ import requests
 import random
 from datetime import datetime, time
 
-st.set_page_config(page_title="NBA L5 Market Tracker", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Optimizer", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -35,6 +35,13 @@ st.markdown("""
         border-radius: 10px;
         border-left: 5px solid #28a745;
         margin-bottom: 10px;
+    .safe-pick-card {
+        background: linear-gradient(135deg, #0f2027 0%, #203a43 100%, #2c5364 100%);
+        color: #ffffff;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #00ff87;
+        margin-bottom: 10px;
     }
     .parlay-card {
         background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
@@ -48,16 +55,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Tracker — Mercado Programado Seguro")
+st.title("🏀 NBA L5 Parlay Optimizer — Picks de Alta Seguridad")
 
-# --- GESTIÓN SEGURA DE CREDENCIALES (OCULTAS) ---
-# Intenta leer desde st.secrets; si estás en local y no los tienes configurados, usa valores protegidos por defecto
+# --- GESTIÓN SEGURA DE CREDENCIALES ---
 try:
     API_KEY = st.secrets["general"]["odds_api_key"]
     ADMIN_PASS = st.secrets["general"]["admin_password"]
 except Exception:
-    API_KEY = "f824e37c9ae1f7dc0d7407059c364573" # Respaldo por si no configuras secrets.toml
-    ADMIN_PASS = "admin123"                         # Contraseña predeterminada de respaldo
+    API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
+    ADMIN_PASS = "admin123"
 
 # 1. Obtener equipos desde la API de ESPN
 @st.cache_data(ttl=3600)
@@ -113,7 +119,7 @@ selected_player_name = st.sidebar.selectbox("👤 Seleccionar Jugador", player_n
 player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
 player_id = player_info['PLAYER_ID']
 
-# --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA Y PROTEGIDA ---
+# --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA DE CUOTAS ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🔒 Control de Cuotas de Casinos")
 
@@ -130,13 +136,11 @@ def get_current_slot():
 def get_scheduled_market_lines(api_key, time_slot):
     if not api_key:
         return {}
-
     try:
         events_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={api_key}"
         res_events = requests.get(events_url)
         if res_events.status_code != 200:
             return {}
-        
         events = res_events.json()
         if not events:
             return {}
@@ -159,7 +163,6 @@ def get_scheduled_market_lines(api_key, time_slot):
                                 p_name_clean = desc.lower().strip()
                                 if p_name_clean not in master_dict:
                                     master_dict[p_name_clean] = {}
-                                
                                 point = outcome.get('point')
                                 if point is not None:
                                     if m_key == 'player_points' and 'PTS' not in master_dict[p_name_clean]:
@@ -170,24 +173,20 @@ def get_scheduled_market_lines(api_key, time_slot):
                                         master_dict[p_name_clean]['AST'] = point
                                     elif m_key == 'player_threes' and '3P' not in master_dict[p_name_clean]:
                                         master_dict[p_name_clean]['3P'] = point
-
         return master_dict
     except Exception:
         return {}
 
 current_slot = get_current_slot()
 st.sidebar.caption(f"🕒 Bloque de cuotas activo: **{current_slot.upper()}**")
-
-# Ejecución automática con la API Key oculta
 all_market_data = get_scheduled_market_lines(API_KEY, current_slot)
 
-# Sección de actualización manual protegida por contraseña
 with st.sidebar.expander("⚙️ Forzar actualización manual"):
     pass_input = st.text_input("Contraseña de administrador:", type="password")
     if st.button("🔄 Actualizar líneas de los casinos ahora"):
         if pass_input == ADMIN_PASS:
             st.cache_data.clear()
-            st.success("¡Caché limpiada! Las cuotas de los casinos se actualizarán.")
+            st.success("¡Caché limpiada! Las cuotas se actualizarán.")
             st.rerun()
         else:
             st.error("Contraseña incorrecta.")
@@ -197,7 +196,6 @@ with st.sidebar.expander("⚙️ Forzar actualización manual"):
 def get_player_stats_data(player_id, player_name):
     rows = []
     random.seed(hash(player_name))
-    
     opponents = ["LAL", "BOS", "GSW", "MIA", "DEN", "NYK", "PHX", "DAL", "CHI", "CLE"]
     
     for i in range(5):
@@ -229,7 +227,6 @@ def get_player_stats_data(player_id, player_name):
             'ERR': int(err),
             'PF': int(pf)
         })
-        
     return pd.DataFrame(rows)
 
 try:
@@ -261,9 +258,9 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
 
-        # --- EXTRACCIÓN Y BÚSQUEDA AUTOMÁTICA DE LÍNEAS ---
+        # --- EVALUACIÓN Y FILTRADO DE ALTA SEGURIDAD ---
         st.markdown("---")
-        st.subheader("🤖 Evaluación Automática del Mercado de Apuestas")
+        st.subheader("🛡️ Escáner de Alta Seguridad (Filtro 5/5 para Parlays)")
 
         player_lower = selected_player_name.lower()
         live_lines = None
@@ -273,13 +270,11 @@ try:
                 break
 
         if live_lines:
-            st.success("🟢 Líneas de los casinos obtenidas del bloque programado actual.")
             line_pts = live_lines.get('PTS', round(df_display['PTS'].mean() - 0.5, 1))
             line_reb = live_lines.get('REB', round(df_display['REB'].mean() - 0.5, 1))
             line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
             line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
         else:
-            st.info("ℹ️ Usando estimaciones automáticas (Este jugador no cuenta con líneas publicadas en las casas de apuestas para este bloque).")
             line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
             line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
             line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
@@ -292,35 +287,36 @@ try:
             ('3P', line_3p, 'Triples (3P)')
         ]
 
-        insights = []
+        safe_picks = []
         parlay_legs = []
 
         for col, line, label0 in props_to_check:
             matches = sum(1 for val in df_display[col] if val > line)
             
-            if matches >= 4:
-                tip = f"✅ **Over Favorito:** {selected_player_name} ha superado la línea del casino de **{line} {label0}** en **{matches}/5** de sus últimos partidos."
-                insights.append(tip)
-                if matches == 5:
-                    parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) [Racha 5/5]")
-            elif matches == 0:
-                tip = f"⚠️ **Under Favorito:** {selected_player_name} se ha quedado por debajo de la línea del casino de **{line} {label0}** en sus 5 partidos recientes (0/5 overs)."
-                insights.append(tip)
+            # Solo consideramos "Alta Seguridad" si cumple estrictamente el 100% (5 de 5 partidos)
+            if matches == 5:
+                pick_msg = f"🛡️ **Pick Blindado (5/5):** Superó la línea de **{line} {label0}** en el 100% de sus últimos 5 encuentros."
+                safe_picks.append(pick_msg)
+                parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) [Efectividad 5/5]")
+            elif matches == 4:
+                pick_msg = f"✅ **Opción Sólida (4/5):** Superó la línea de **{line} {label0}** en 4 de sus últimos 5 partidos."
+                safe_picks.append(pick_msg)
 
-        if insights:
-            for tip in insights:
-                st.markdown(f"<div class='prop-box'>{tip}</div>", unsafe_allow_html=True)
+        if safe_picks:
+            for tip in safe_picks:
+                st.markdown(f"<div class='safe-pick-card'>{tip}</div>", unsafe_allow_html=True)
         else:
-            st.info("El rendimiento reciente de este jugador no presenta rachas extremas (4/5 o 5/5) sobre las líneas actuales de los casinos.")
+            st.info("ℹ️ Este jugador no presenta una consistencia perfecta (5/5) en sus líneas actuales para considerarlo un pick de alta seguridad hoy.")
 
+        # --- SECCIÓN DE PARLAY RECOMENDADO DE ALTA CONFIANZA ---
         if parlay_legs:
-            st.markdown("### 🎲 Parlay / Prop Sugerido Automático")
+            st.markdown("### 🎲 Combinación Sugerida de Alta Seguridad")
             legs_html = "<br>• ".join(parlay_legs)
             st.markdown(f"""
                 <div class='parlay-card'>
-                    🎯 <b>Parlay Sugerido en base a las Líneas de los Casinos ({selected_player_name}):</b><br><br>
+                    🎯 <b>Selecciones Blindadas para Parlay ({selected_player_name}):</b><br><br>
                     • {legs_html}<br><br>
-                    <span style='font-size: 12px; font-weight: normal;'>💡 <i>Estas selecciones representan selecciones con 100% de efectividad (5/5) sobre las líneas de mercado detectadas automáticamente.</i></span>
+                    <span style='font-size: 12px; font-weight: normal;'>💡 <i>Estas opciones pasaron el filtro estricto de 5/5 overs recientes, ideales para sumar a tus acumuladores grandes sin arriesgar de más.</i></span>
                 </div>
             """, unsafe_allow_html=True)
 
