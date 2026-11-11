@@ -4,7 +4,7 @@ import requests
 import random
 from datetime import datetime, time
 
-st.set_page_config(page_title="NBA L5 Parlay Master - Papeleta", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Master - Calendario", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -45,6 +45,13 @@ st.markdown("""
         margin-bottom: 8px;
         font-size: 14px;
     }
+    .game-matchup-box {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 15px;
+    }
     .parlay-card {
         background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
         color: #000000;
@@ -65,7 +72,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Master — Papeleta & Seguimiento")
+st.title("🏀 NBA L5 Parlay Master — Calendario & Papeleta")
 
 # --- INICIALIZAR LA PAPELETA EN LA SESIÓN ---
 if 'my_ticket' not in st.session_state:
@@ -102,27 +109,38 @@ if not nba_teams:
     st.error("No se pudieron cargar los equipos.")
     st.stop()
 
-# 1.1 Obtener los partidos programados para el DÍA DE HOY en ESPN
+# 1.1 Obtener los partidos detallados para el DÍA DE HOY en ESPN (Enfrentamientos reales)
 @st.cache_data(ttl=1800)
-def get_todays_games_teams():
+def get_todays_matchups():
     today_str = datetime.now().strftime("%Y%m%d")
     url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates={today_str}"
     response = requests.get(url)
-    playing_teams_abbrev = set()
+    matchups_list = []
     
     if response.status_code == 200:
         data = response.json()
         for event in data.get('events', []):
+            name = event.get('name', '') # Ej. "Boston Celtics at Philadelphia 76ers"
+            status_detail = event.get('status', {}).get('type', {}).get('detail', '')
+            teams_in_game = []
+            
             for competition in event.get('competitions', []):
                 for competitor in competition.get('competitors', []):
                     team_elem = competitor.get('team', {})
-                    abbrev = team_elem.get('abbreviation')
-                    if abbrev:
-                        playing_teams_abbrev.add(abbrev)
-                        
-    return playing_teams_abbrev
+                    teams_in_game.append({
+                        'name': team_elem.get('displayName'),
+                        'abbreviation': team_elem.get('abbreviation')
+                    })
+            if len(teams_in_game) == 2:
+                matchups_list.append({
+                    'matchup_name': name,
+                    'time_detail': status_detail,
+                    'team1': teams_in_game[0],
+                    'team2': teams_in_game[1]
+                })
+    return matchups_list
 
-todays_active_abbrevs = get_todays_games_teams()
+todays_matchups = get_todays_matchups()
 
 # --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA DE CUOTAS ---
 st.sidebar.markdown("---")
@@ -196,7 +214,7 @@ with st.sidebar.expander("⚙️ Forzar actualización manual"):
         else:
             st.error("Contraseña incorrecta.")
 
-# --- BARRA LATERAL: MI PAPELETA / BOLETO VIRTUAL ---
+# --- BARRA LATERAL: MI PAPELETA ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎟️ Mi Papeleta de Parlay")
 
@@ -213,7 +231,7 @@ if st.session_state.my_ticket:
         st.session_state.my_ticket = []
         st.rerun()
 else:
-    st.sidebar.info("Tu papeleta está vacía. Agrega picks desde el escáner.")
+    st.sidebar.info("Tu papeleta está vacía.")
 
 # Generador de datos simulados realistas para partidos recientes
 def get_player_stats_simulation(player_name):
@@ -253,21 +271,26 @@ def get_player_stats_simulation(player_name):
     return pd.DataFrame(rows)
 
 # --- NAVEGACIÓN PRINCIPAL EN PESTAÑAS (TABS) ---
-tab1, tab2, tab3 = st.tabs(["🛡️ Escáner de Partidos de Hoy", "🎟️ Ver Mi Papeleta & Resultados", "👤 Vista Individual por Jugador"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🛡️ Escáner General", 
+    "📅 Calendario & Picks por Partido", 
+    "🎟️ Mi Papeleta", 
+    "👤 Vista Individual"
+])
 
 with tab1:
-    st.subheader("🔥 Picks Blindados de los Equipos que Juegan HOY")
-    st.markdown("Este escáner detecta automáticamente qué equipos tienen partido programado para hoy y busca las mejores opciones con **efectividad perfecta de 5/5**. Puedes agregar tus favoritas directo a tu papeleta.")
+    st.subheader("🔥 Picks Blindados del Día")
+    st.markdown("Escanea rápidamente las mejores opciones con efectividad de 5/5 para la jornada.")
 
-    # Guardamos los resultados en session_state para que no se borren al dar clic en agregar
     if 'global_blindados' not in st.session_state:
         st.session_state.global_blindados = []
 
     if st.button("🚀 Buscar Picks Blindados para los Juegos de Hoy"):
-        with st.spinner("Verificando cartelera del día y escaneando planteles..."):
+        with st.spinner("Escaneando planteles de la jornada..."):
             st.session_state.global_blindados = []
+            active_abbrevs = {m['team1']['abbreviation'] for m in todays_matchups}.union({m['team2']['abbreviation'] for m in todays_matchups})
             
-            active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_active_abbrevs]
+            active_teams_list = [t for t in nba_teams if t['abbreviation'] in active_abbrevs]
             if not active_teams_list:
                 active_teams_list = nba_teams[:10]
             
@@ -317,7 +340,7 @@ with tab1:
     fecha_actual_str = datetime.now().strftime("%A, %d de %B de %Y")
 
     if st.session_state.global_blindados:
-        st.success(f"¡Se encontraron {len(st.session_state.global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy, {fecha_actual_str}!")
+        st.success(f"¡Se encontraron {len(st.session_state.global_blindados)} opciones totalmente blindadas (5/5) para hoy, {fecha_actual_str}!")
         
         for idx, item in enumerate(st.session_state.global_blindados):
             col_card1, col_card2 = st.columns([4, 1])
@@ -329,8 +352,7 @@ with tab1:
                     </div>
                 """, unsafe_allow_html=True)
             with col_card2:
-                # Clave única robusta basada en el índice y nombre
-                if st.button("➕ Agregar", key=f"add_pick_{idx}_{item['Jugador']}"):
+                if st.button("➕ Agregar", key=f"add_pick_gen_{idx}"):
                     if item not in st.session_state.my_ticket:
                         st.session_state.my_ticket.append(item)
                         st.toast(f"¡Agregado a tu papeleta: {item['Jugador']}!", icon="🎟️")
@@ -338,11 +360,101 @@ with tab1:
                         st.toast("Este pick ya está en tu papeleta.", icon="⚠️")
             st.write("")
     else:
-        st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
+        st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'**.")
 
 with tab2:
+    st.subheader("📅 Calendario de Partidos y Opciones por Enfrentamiento")
+    st.markdown("Visualiza cada partido programado para hoy y los picks con efectividad de 5/5 específicos de los jugadores de ambos equipos.")
+
+    if not todays_matchups:
+        st.warning("No se encontraron partidos oficiales programados para el día de hoy en la cartelera.")
+    else:
+        st.info(f"Se encontraron **{len(todays_matchups)} encuentros** programados para hoy.")
+        
+        for m_idx, matchup in enumerate(todays_matchups):
+            t1 = matchup['team1']
+            t2 = matchup['team2']
+            
+            st.markdown(f"""
+                <div class='game-matchup-box'>
+                    <h4>🏟️ {matchup['matchup_name']}</h4>
+                    <p style='color: #8b949e; font-size: 13px;'>Horario / Estado: <b>{matchup['time_detail']}</b></p>
+            """, unsafe_allow_html=True)
+            
+            # Botón o lógica para escanear los picks de este partido específico
+            with st.expander(f"🔍 Ver Picks Blindados (5/5) para este partido"):
+                with st.spinner(f"Analizando planteles de {t1['name']} y {t2['name']}..."):
+                    matchup_picks = []
+                    game_teams = [t1['abbreviation'], t2['abbreviation']]
+                    
+                    for team_obj in nba_teams:
+                        if team_obj['abbreviation'] in game_teams:
+                            t_abbrev = team_obj['abbreviation']
+                            t_name = team_obj['full_name']
+                            
+                            url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{t_abbrev}/roster"
+                            res = requests.get(url)
+                            if res.status_code == 200:
+                                athletes = res.json().get('athletes', [])
+                                for athlete in athletes[:5]:
+                                    p_name = athlete.get('displayName')
+                                    df_p = get_player_stats_simulation(p_name)
+                                    
+                                    p_lower = p_name.lower()
+                                    live_l = None
+                                    for k, lines in all_market_data.items():
+                                        if k in p_lower or p_lower in k:
+                                            live_l = lines
+                                            break
+                                    
+                                    l_pts = live_l.get('PTS', round(df_p['PTS'].mean() - 1.5, 1)) if live_l else round(df_p['PTS'].mean() - 1.5, 1)
+                                    l_reb = live_l.get('REB', round(df_p['REB'].mean() - 1.0, 1)) if live_l else round(df_p['REB'].mean() - 1.0, 1)
+                                    l_ast = live_l.get('AST', round(df_p['AST'].mean() - 0.8, 1)) if live_l else round(df_p['AST'].mean() - 0.8, 1)
+                                    l_3p = live_l.get('3P', max(0.5, round(df_p['3P'].mean() - 0.5, 1))) if live_l else max(0.5, round(df_p['3P'].mean() - 0.5, 1))
+                                    
+                                    checks = [
+                                        ('PTS', l_pts, 'Puntos'),
+                                        ('REB', l_reb, 'Rebotes'),
+                                        ('AST', l_ast, 'Asistencias'),
+                                        ('3P', l_3p, 'Triples')
+                                    ]
+                                    
+                                    for col, line_val, lbl in checks:
+                                        hits = sum(1 for v in df_p[col] if v > line_val)
+                                        if hits == 5:
+                                            matchup_picks.append({
+                                                'Jugador': p_name,
+                                                'Equipo': t_name,
+                                                'Pick': f"Más de {line_val} {lbl}",
+                                                'Columna': col,
+                                                'Linea': line_val,
+                                                'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} (5/5 overs)"
+                                            })
+                    
+                    if matchup_picks:
+                        for p_idx, pick_item in enumerate(matchup_picks):
+                            c_p1, c_p2 = st.columns([4, 1])
+                            with c_p1:
+                                st.markdown(f"""
+                                    <div class='safe-pick-card' style='margin-bottom:4px; padding:8px;'>
+                                        ⭐ <b>{pick_item['Jugador']}</b> ({pick_item['Equipo']}) — 🎯 <b>{pick_item['Pick']}</b>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                            with c_p2:
+                                if st.button("➕ Agregar", key=f"cal_add_{m_idx}_{p_idx}_{pick_item['Jugador']}"):
+                                    if pick_item not in st.session_state.my_ticket:
+                                        st.session_state.my_ticket.append(pick_item)
+                                        st.toast(f"¡Agregado: {pick_item['Jugador']}!", icon="🎟️")
+                                    else:
+                                        st.toast("Ya está en tu papeleta.", icon="⚠️")
+                    else:
+                        st.info("No hay picks con efectividad de 5/5 detectados para este enfrentamiento específico en este momento.")
+            
+            st.markdown("</div>", unsafe_allow_html=True)
+
+with tab3:
     st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
-    st.markdown("Aquí puedes llevar el registro de tus selecciones y marcar de forma interactiva si se van cumpliendo o fallando en la jornada.")
+    st.markdown("Lleva el registro de tus selecciones y marca de forma interactiva si se van cumpliendo en la jornada.")
 
     if st.session_state.my_ticket:
         st.markdown("<div class='ticket-box'>", unsafe_allow_html=True)
@@ -373,9 +485,9 @@ with tab2:
             st.session_state.my_ticket = []
             st.rerun()
     else:
-        st.warning("No tienes ningún pick agregado en tu papeleta. Ve a la pestaña **'Escáner de Partidos de Hoy'** y haz clic en 'Agregar' en las opciones que te interesen.")
+        st.warning("No tienes ningún pick agregado en tu papeleta. Ve al Escáner General o al Calendario para agregar selecciones.")
 
-with tab3:
+with tab4:
     team_names = {t['full_name']: t for t in nba_teams}
     selected_team_name = st.sidebar.selectbox("🏀 Seleccionar Equipo", sorted(team_names.keys()))
     selected_team_info = team_names[selected_team_name]
