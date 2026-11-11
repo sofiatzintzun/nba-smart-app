@@ -35,10 +35,19 @@ st.markdown("""
         border-left: 5px solid #28a745;
         margin-bottom: 10px;
     }
+    .parlay-card {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: #000000;
+        padding: 20px;
+        border-radius: 12px;
+        font-weight: bold;
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 Estadísticas: Últimos 5 Partidos & Tendencias")
+st.title("🏀 Estadísticas: Últimos 5 Partidos & Parlay Analyzer")
 
 # 1. Obtener equipos desde la API de ESPN
 @st.cache_data(ttl=3600)
@@ -164,35 +173,47 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
 
-        # --- NUEVA SECCIÓN: ANÁLISIS DE TENDENCIAS Y LÍNEAS DE CASINO ---
+        # --- ANÁLISIS DE TENDENCIAS Y LÍNEAS DE CASINO ---
         st.markdown("---")
         st.subheader("🔥 Análisis de Rachas y Líneas (Últimos 5 Partidos)")
 
-        # Definimos líneas estándar de casino orientativas para evaluar
-        # Formato: (Columna, Línea decimal de casino, Nombre legible)
         props_to_check = [
-            ('PTS', 10.5, 'Puntos'),
-            ('PTS', 15.5, 'Puntos'),
-            ('REB', 4.5, 'Rebotes'),
-            ('REB', 6.5, 'Rebotes'),
-            ('AST', 3.5, 'Asistencias'),
+            ('PTS', 9.5, 'Puntos'),
+            ('PTS', 14.5, 'Puntos'),
+            ('REB', 3.5, 'Rebotes'),
+            ('REB', 5.5, 'Rebotes'),
+            ('AST', 2.5, 'Asistencias'),
             ('3P', 1.5, 'Triples anotados')
         ]
 
         insights = []
+        parlay_legs = []
+
         for col, line, label0 in props_to_check:
-            # Contamos cuántas veces superó la línea en los últimos 5 partidos
             matches = sum(1 for val in df_display[col] if val > line)
-            if matches >= 4:  # Si lo hizo en 4 o 5 de 5, es una tendencia fuerte
-                insights.append(f"✅ **{selected_player_name}** ha superado los **{line} {label0.lower()}** en **{matches}/5** de sus últimos partidos.")
-            elif matches == 0:
-                insights.append(f"⚠️ **{selected_player_name}** se ha mantenido por debajo de los **{line} {label0.lower()}** en todos sus últimos 5 partidos (0/{matches} overs).")
+            if matches >= 4:  # Alta consistencia (4/5 o 5/5)
+                tip = f"✅ **{selected_player_name}** superó los **{line} {label0.lower()}** en **{matches}/5** de sus últimos partidos."
+                insights.append(tip)
+                if matches == 5:
+                    parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) - 5/5 racha")
 
         if insights:
             for tip in insights:
                 st.markdown(f"<div class='prop-box'>{tip}</div>", unsafe_allow_html=True)
         else:
-            st.info("No hay rachas extremas (0/5 o 5/5) detectadas en las líneas principales para este jugador en esta muestra.")
+            st.info("No hay rachas extremas (0/5 o 5/5) detectadas en las líneas principales para este jugador.")
+
+        # --- SECCIÓN DE PARLAY RECOMENDADO ---
+        if parlay_legs:
+            st.markdown("### 🎲 Parlay / Prop Sugerido del Jugador")
+            legs_html = "<br>• ".join(parlay_legs)
+            st.markdown(f"""
+                <div class='parlay-card'>
+                    🎯 <b>Parlay Recomendado L5 para {selected_player_name}:</b><br><br>
+                    • {legs_html}<br><br>
+                    <span style='font-size: 12px; font-weight: normal;'>💡 <i>Consejo: Estas selecciones se basan en un 100% de efectividad en los últimos 5 encuentros del jugador. ¡Combínalo con precaución!</i></span>
+                </div>
+            """, unsafe_allow_html=True)
 
     else:
         st.warning("No hay suficientes registros disponibles para este jugador.")
