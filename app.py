@@ -196,12 +196,11 @@ def get_current_slot():
     else:
         return "slot_5pm"
 
-@st.cache_data(ttl=28800) # Caché de 8 horas para proteger tus créditos estrictamente a 3 veces al día
+@st.cache_data(ttl=28800)
 def get_scheduled_market_lines(api_key, time_slot):
     if not api_key:
         return {}
     try:
-        # 1. Obtenemos únicamente la lista de eventos una sola vez (Costo: 0 o 1 crédito mínimo)
         events_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={api_key}"
         res_events = requests.get(events_url)
         if res_events.status_code != 200:
@@ -211,9 +210,8 @@ def get_scheduled_market_lines(api_key, time_slot):
             return {}
             
         master_dict = {}
-        markets_to_fetch = "player_points,player_rebounds,player_assists"
+        markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes,player_steals,player_blocks"
         
-        # Limitamos estrictamente a 1 solo partido principal de la jornada para consumir EXACTAMENTE 1 CRÉDITO por actualización
         if events:
             event_id = events[0]['id']
             odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
@@ -237,6 +235,12 @@ def get_scheduled_market_lines(api_key, time_slot):
                                         master_dict[p_name_clean]['REB'] = point
                                     elif m_key == 'player_assists' and 'AST' not in master_dict[p_name_clean]:
                                         master_dict[p_name_clean]['AST'] = point
+                                    elif m_key == 'player_threes' and '3P' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['3P'] = point
+                                    elif m_key == 'player_steals' and 'STL' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['STL'] = point
+                                    elif m_key == 'player_blocks' and 'BLK' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['BLK'] = point
         return master_dict
     except Exception:
         return {}
@@ -299,7 +303,7 @@ def buscar_hoja_equipo(nombre_espn):
 
 with tabs[0]:
     st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Sugeridos")
-    st.markdown("Visualiza los enfrentamientos de hoy y consulta los picks con su comparativa de línea optimizada[cite: 1].")
+    st.markdown("Visualiza los enfrentamientos de hoy, consulta los picks de los jugadores de ambos equipos con su comparativa de línea[cite: 1] y agrégalos directo a la papeleta.")
 
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy.")
@@ -357,46 +361,58 @@ with tabs[0]:
                                 av_pts = df_st['Puntos'].mean()
                                 av_reb = df_st['Rebotes'].mean()
                                 av_ast = df_st['Asistencias'].mean()
+                                av_3p  = df_st['Triples'].mean()
+                                av_stl = df_st['Robos'].mean()
+                                av_blk = df_st['Bloqueos'].mean()
                                 
-                                encontro_jugadores = True
-                                m_info = all_market_data.get(p_name.lower().strip(), {})
-                                
-                                lp = m_info.get('PTS', round(av_pts - 3, 1))
-                                lr = m_info.get('REB', round(av_reb - 1, 1))
-                                la = m_info.get('AST', round(av_ast - 1, 1))
-                                
-                                st.markdown(f"**👤 {p_name}** | Avg Pts: {av_pts:.1f} (Línea: {lp}) | Reb: {av_reb:.1f} (Línea: {lr}) | Ast: {av_ast:.1f} (Línea: {la})")
-                                
-                                c_b1, c_b2, c_b3 = st.columns(3)
-                                with c_b1:
-                                    if st.button(f"➕ PTS ({lp})", key=f"c_pts_{sheet_eq}_{p_name}"):
-                                        item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {lp} Puntos"}
-                                        if item not in st.session_state.my_ticket:
-                                            st.session_state.my_ticket.append(item)
-                                            st.success("¡Agregado!")
-                                            st.rerun()
-                                with c_b2:
-                                    if st.button(f"➕ REB ({lr})", key=f"c_reb_{sheet_eq}_{p_name}"):
-                                        item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {lr} Rebotes"}
-                                        if item not in st.session_state.my_ticket:
-                                            st.session_state.my_ticket.append(item)
-                                            st.success("¡Agregado!")
-                                            st.rerun()
-                                with c_b3:
-                                    if st.button(f"➕ AST ({la})", key=f"c_ast_{sheet_eq}_{p_name}"):
-                                        item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {la} Asistencias"}
-                                        if item not in st.session_state.my_ticket:
-                                            st.session_state.my_ticket.append(item)
-                                            st.success("¡Agregado!")
-                                            st.rerun()
-                                st.divider()
+                                if av_pts >= 14 or av_reb >= 6 or av_ast >= 5 or av_3p >= 2.0 or av_stl >= 1.5 or av_blk >= 1.5:
+                                    encontro_jugadores = True
+                                    m_info = all_market_data.get(p_name.lower().strip(), {})
+                                    
+                                    lp = m_info.get('PTS', round(av_pts - 3, 1))
+                                    lr = m_info.get('REB', round(av_reb - 1, 1))
+                                    la = m_info.get('AST', round(av_ast - 1, 1))
+                                    l3 = m_info.get('3P', round(av_3p - 0.5, 1))
+                                    
+                                    st.markdown(f"**👤 {p_name}** | Pts Avg: {av_pts:.1f} (Línea: {lp}) | Reb: {av_reb:.1f} (Línea: {lr}) | Ast: {av_ast:.1f} (Línea: {la})")
+                                    
+                                    c_b1, c_b2, c_b3, c_b4 = st.columns(4)
+                                    with c_b1:
+                                        if st.button(f"➕ PTS ({lp})", key=f"c_pts_{m_idx}_{sheet_eq}_{p_name}"):
+                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {lp} Puntos"}
+                                            if item not in st.session_state.my_ticket:
+                                                st.session_state.my_ticket.append(item)
+                                                st.success("¡Agregado!")
+                                                st.rerun()
+                                    with c_b2:
+                                        if st.button(f"➕ REB ({lr})", key=f"c_reb_{m_idx}_{sheet_eq}_{p_name}"):
+                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {lr} Rebotes"}
+                                            if item not in st.session_state.my_ticket:
+                                                st.session_state.my_ticket.append(item)
+                                                st.success("¡Agregado!")
+                                                st.rerun()
+                                    with c_b3:
+                                        if st.button(f"➕ AST ({la})", key=f"c_ast_{m_idx}_{sheet_eq}_{p_name}"):
+                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {la} Asistencias"}
+                                            if item not in st.session_state.my_ticket:
+                                                st.session_state.my_ticket.append(item)
+                                                st.success("¡Agregado!")
+                                                st.rerun()
+                                    with c_b4:
+                                        if st.button(f"➕ 3P ({l3})", key=f"c_3p_{m_idx}_{sheet_eq}_{p_name}"):
+                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"Más de {l3} Triples"}
+                                            if item not in st.session_state.my_ticket:
+                                                st.session_state.my_ticket.append(item)
+                                                st.success("¡Agregado!")
+                                                st.rerun()
+                                    st.divider()
                                 
                     if not encontro_jugadores:
-                        st.info("No hay suficientes registros analíticos para mostrar jugadores de estos equipos.")
+                        st.info("No hay suficientes registros analíticos para mostrar jugadores destacados de estos equipos.")
 
 with tabs[1]:
     st.subheader("🔥 Picks Blindados del Día (Escáner General)")
-    st.markdown("Escanea **exclusivamente a los equipos con partido programado hoy**, mostrando todos los jugadores evaluados[cite: 1].")
+    st.markdown("Escanea **exclusivamente a los equipos con partido programado hoy**, analizando tendencias en Puntos, Rebotes, Asistencias, Triples, Robos y Bloqueos[cite: 1].")
 
     if not todays_matchups:
         st.warning("No hay partidos programados para el día de hoy.")
@@ -435,6 +451,9 @@ with tabs[1]:
                 avg_pts = df_stats['Puntos'].mean()
                 avg_reb = df_stats['Rebotes'].mean()
                 avg_ast = df_stats['Asistencias'].mean()
+                avg_3p  = df_stats['Triples'].mean()
+                avg_stl = df_stats['Robos'].mean()
+                avg_blk = df_stats['Bloqueos'].mean()
                 
                 p_key_lower = player_name.lower().strip()
                 market_info = all_market_data.get(p_key_lower, {})
@@ -511,7 +530,7 @@ with tabs[3]:
     sorted_teams = sorted(lista_equipos_sheets)
     default_team_idx = sorted_teams.index(st.session_state.target_team) if st.session_state.target_team in sorted_teams else 0
     
-    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted_teams, index=default_team_idx)
+    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted_teams, index=default_team_idx, key="sb_team")
     
     df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
@@ -531,8 +550,10 @@ with tabs[3]:
             if st.session_state.target_player in lista_jugadores:
                 default_player_idx = lista_jugadores.index(st.session_state.target_player)
                 
-            selected_player = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores, index=default_player_idx)
-            st.session_state.target_player = None
+            selected_player = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores, index=default_player_idx, key="sb_player")
+            
+            if st.session_state.target_player and st.session_state.target_player == selected_player:
+                st.session_state.target_player = None
             
             df_player_raw = players_dict[selected_player]
             
@@ -545,8 +566,14 @@ with tabs[3]:
             for col in df_display.columns:
                 df_display[col] = pd.to_numeric(df_display[col], errors='coerce').fillna(0).astype(int)
                 
-            st.write(f"### 📋 Registros de Últimos Partidos: {selected_player} | {selected_sheet_name}")
+            st.markdown(f"""
+                <div style='background: linear-gradient(135deg, #1f4068 0%, #162447 100%); padding: 15px; border-radius: 10px; border-left: 5px solid #e43f5a; margin-bottom: 20px; color: white;'>
+                    <h2 style='margin:0; color: #ffffff;'>⭐ {selected_player}</h2>
+                    <p style='margin:0; color: #a4b3b6;'>Franquicia: <b>{selected_sheet_name}</b> | Análisis basado en últimos 5 partidos (L5)</p>
+                </div>
+            """, unsafe_allow_html=True)
             
+            st.write(f"### 📋 Registros de Últimos Partidos")
             styled_df = df_display.style.map(highlight_cells, subset=df_display.columns.tolist())
             st.table(styled_df)
             
@@ -564,7 +591,7 @@ with tabs[3]:
             c4.metric("Avg Triples", f"{avg_3p:.1f}")
 
             st.markdown("---")
-            st.subheader("💡 Sugerencias de Apuesta L5 (Comparativa con Línea de Casino)")
+            st.subheader("💡 Sugerencias de Apuesta L5 (Comparativa con Línea de Casino)")[cite: 1]
             
             p_key_lower = selected_player.lower().strip()
             market_info = all_market_data.get(p_key_lower, {})
@@ -573,7 +600,7 @@ with tabs[3]:
             
             with col_s1:
                 line_p = market_info.get('PTS', round(avg_pts - 3, 1))
-                st.markdown(f"**PTS**<br>Avg: {avg_pts:.1f}<br>🎯 Línea: **{line_p}**", unsafe_allow_html=True)
+                st.markdown(f"**PTS**<br>Avg: {avg_pts:.1f}<br>🎯 Línea: **{line_p}**[cite: 1]", unsafe_allow_html=True)
                 if st.button(f"➕ Más de {line_p} PTS", key=f"btn_pts_{selected_player}"):
                     item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_p} Puntos"}
                     if item not in st.session_state.my_ticket:
@@ -582,7 +609,7 @@ with tabs[3]:
                         
             with col_s2:
                 line_r = market_info.get('REB', round(avg_reb - 1, 1))
-                st.markdown(f"**REB**<br>Avg: {avg_reb:.1f}<br>🎯 Línea: **{line_r}**", unsafe_allow_html=True)
+                st.markdown(f"**REB**<br>Avg: {avg_reb:.1f}<br>🎯 Línea: **{line_r}**[cite: 1]", unsafe_allow_html=True)
                 if st.button(f"➕ Más de {line_r} REB", key=f"btn_reb_{selected_player}"):
                     item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_r} Rebotes"}
                     if item not in st.session_state.my_ticket:
@@ -591,7 +618,7 @@ with tabs[3]:
                         
             with col_s3:
                 line_a = market_info.get('AST', round(avg_ast - 1, 1))
-                st.markdown(f"**AST**<br>Avg: {avg_ast:.1f}<br>🎯 Línea: **{line_a}**", unsafe_allow_html=True)
+                st.markdown(f"**AST**<br>Avg: {avg_ast:.1f}<br>🎯 Línea: **{line_a}**[cite: 1]", unsafe_allow_html=True)
                 if st.button(f"➕ Más de {line_a} AST", key=f"btn_ast_{selected_player}"):
                     item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_a} Asistencias"}
                     if item not in st.session_state.my_ticket:
@@ -600,7 +627,7 @@ with tabs[3]:
 
             with col_s4:
                 line_3 = market_info.get('3P', round(avg_3p - 0.5, 1))
-                st.markdown(f"**3P**<br>Avg: {avg_3p:.1f}<br>🎯 Línea: **{line_3}**", unsafe_allow_html=True)
+                st.markdown(f"**3P**<br>Avg: {avg_3p:.1f}<br>🎯 Línea: **{line_3}**[cite: 1]", unsafe_allow_html=True)
                 if st.button(f"➕ Más de {line_3} 3P", key=f"btn_3p_{selected_player}"):
                     item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_3} Triples"}
                     if item not in st.session_state.my_ticket:
@@ -609,7 +636,7 @@ with tabs[3]:
 
             with col_s5:
                 line_s = market_info.get('STL', round(avg_stl - 0.5, 1))
-                st.markdown(f"**STL**<br>Avg: {avg_stl:.1f}<br>🎯 Línea: **{line_s}**", unsafe_allow_html=True)
+                st.markdown(f"**STL**<br>Avg: {avg_stl:.1f}<br>🎯 Línea: **{line_s}**[cite: 1]", unsafe_allow_html=True)
                 if st.button(f"➕ Más de {line_s} STL", key=f"btn_stl_{selected_player}"):
                     item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_s} Robos"}
                     if item not in st.session_state.my_ticket:
@@ -618,9 +645,9 @@ with tabs[3]:
 
             with col_s6:
                 line_b = market_info.get('BLK', round(avg_blk - 0.5, 1))
-                st.markdown(f"**BLK**<br>Avg: {avg_blk:.1f}<br>🎯 Línea: **{line_b}**", unsafe_allow_html=True)
+                st.markdown(f"**BLK**<br>Avg: {avg_blk:.1f}<br>🎯 Línea: **{line_b}**[cite: 1]", unsafe_allow_html=True)
                 if st.button(f"➕ Más de {line_b} BLK", key=f"btn_blk_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Expiry': selected_sheet_name, 'Pick': f"Más de {line_b} Bloqueos"}
+                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"Más de {line_b} Bloqueos"}
                     if item not in st.session_state.my_ticket:
                         st.session_state.my_ticket.append(item)
                         st.success("¡Agregado!")
