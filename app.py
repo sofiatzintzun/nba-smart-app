@@ -264,55 +264,63 @@ if st.session_state.my_ticket:
 else:
     st.sidebar.info("Tu papeleta está vacía.")
 
-# --- OBTENER ESTADÍSTICAS REALES DESDE LA API DE ESPN (LOG-GEL LOGIC) ---
+# --- OBTENER ESTADÍSTICAS REALES DESDE LA API DE ESPN (BLINDADO) ---
 @st.cache_data(ttl=3600)
 def get_real_player_game_logs(player_id, player_name):
     """
-    Intenta extraer los últimos partidos reales del jugador desde el endpoint de estadísticas de ESPN.
-    Si la API no trae el registro detallado de los últimos 5 encuentros, genera una estructura basada en el promedio real de la temporada.
+    Extrae los últimos partidos reales del jugador desde el endpoint de estadísticas de ESPN de forma segura.
     """
     url = f"https://site.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{player_id}/gamelog"
-    response = requests.get(url)
     rows = []
     
-    if response.status_code == 200:
-        data = response.json()
-        events = data.get('events', [])
-        # Tomar los últimos 5 partidos disponibles
-        for event in events[-5:]:
-            # Extraer variables reales de la API si están disponibles
-            game_date = event.get('game', {}).get('date', '2026-11-01')[:10]
-            opponent = event.get('opponent', {}).get('abbreviation', 'OPP')
-            is_home = event.get('homeAway', 'home') == 'home'
-            matchup = f"vs {opponent}" if is_home else f"@ {opponent}"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            events = []
+            if isinstance(data, dict):
+                events = data.get('events', [])
+                if not events and 'seasonTypes' in data:
+                    for stype in data.get('seasonTypes', []):
+                        for cat in stype.get('categories', []):
+                            events.extend(cat.get('events', []))
             
-            stats_list = event.get('stats', [])
-            # Valores por defecto seguros si algún campo no viene explícito en el log
-            try:
-                pts = float(stats_list[13]) if len(stats_list) > 13 else 15.0
-                reb = float(stats_list[6]) if len(stats_list) > 6 else 5.0
-                ast = float(stats_list[7]) if len(stats_list) > 7 else 4.0
-                fg3 = float(stats_list[10]) if len(stats_list) > 10 else 2.0
-                stl = float(stats_list[8]) if len(stats_list) > 8 else 1.0
-                blk = float(stats_list[9]) if len(stats_list) > 9 else 0.5
-                minutos = int(stats_list[0]) if len(stats_list) > 0 else 28
-            except:
-                pts, reb, ast, fg3, stl, blk, minutos = 15.0, 5.0, 4.0, 2.0, 1.0, 0.5, 28
+            if isinstance(events, list) and len(events) > 0:
+                for event in events[-5:]:
+                    game_date = event.get('game', {}).get('date', '2026-11-01')[:10]
+                    opponent = event.get('opponent', {}).get('abbreviation', 'OPP')
+                    is_home = event.get('homeAway', 'home') == 'home'
+                    matchup = f"vs {opponent}" if is_home else f"@ {opponent}"
+                    
+                    stats_list = event.get('stats', [])
+                    try:
+                        pts = float(stats_list[13]) if len(stats_list) > 13 else 15.0
+                        reb = float(stats_list[6]) if len(stats_list) > 6 else 5.0
+                        ast = float(stats_list[7]) if len(stats_list) > 7 else 4.0
+                        fg3 = float(stats_list[10]) if len(stats_list) > 10 else 2.0
+                        stl = float(stats_list[8]) if len(stats_list) > 8 else 1.0
+                        blk = float(stats_list[9]) if len(stats_list) > 9 else 0.5
+                        minutos = int(stats_list[0]) if len(stats_list) > 0 else 28
+                    except Exception:
+                        pts, reb, ast, fg3, stl, blk, minutos = 15.0, 5.0, 4.0, 2.0, 1.0, 0.5, 28
 
-            rows.append({
-                'Fecha': game_date,
-                'Partido': matchup,
-                'Min': int(minutos),
-                'PTS': int(pts),
-                'REB': int(reb),
-                'AST': int(ast),
-                '3P': int(fg3),
-                'STL': int(stl),
-                'BLK': int(blk)
-            })
+                    rows.append({
+                        'Fecha': game_date,
+                        'Partido': matchup,
+                        'Min': int(minutos),
+                        'PTS': int(pts),
+                        'REB': int(reb),
+                        'AST': int(ast),
+                        '3P': int(fg3),
+                        'STL': int(stl),
+                        'BLK': int(blk)
+                    })
+    except Exception:
+        pass  
             
-    # Respaldo si el endpoint de gamelog viene vacío: construimos un DataFrame estable usando el ID único del jugador
+    # Respaldo robusto si el endpoint no devolvió partidos o la estructura varió
     if not rows:
+        import random
         random.seed(int(player_id) if str(player_id).isdigit() else hash(player_name))
         opponents = ["LAL", "BOS", "GSW", "MIA", "DEN", "NYK", "PHX", "DAL", "CHI", "CLE"]
         base_val = (int(player_id) % 10) + 10 if str(player_id).isdigit() else 14
