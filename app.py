@@ -18,9 +18,7 @@ def highlight_cells(val):
     color = 'background-color: #28a745; color: white; font-weight: bold'
     try:
         num = float(val)
-        if num >= 10:
-            return color
-        if 1 <= num < 10:
+        if num >= 1:
             return color
     except:
         pass
@@ -59,10 +57,9 @@ try:
     ADMIN_PASS = st.secrets["general"]["admin_password"]
 except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
-    ADMIN_PASS = "admin123"
+    ADMIN_PASS = "0911"
 
-# 1. Conexión a Google Sheets (Asegúrate de configurar tu st.connection o secrets.toml)
-# Si tu hoja es pública, puedes usar GSheetsConnection directamente:
+# Conexión directa a Google Sheets
 @st.cache_data(ttl=600)
 def load_team_data(sheet_name):
     try:
@@ -70,10 +67,9 @@ def load_team_data(sheet_name):
         df = conn.read(worksheet=sheet_name, ttl=0)
         return df
     except Exception as e:
-        # En caso de emergencia o pruebas locales si prefieres respaldo en DataFrame vacío
         return pd.DataFrame()
 
-# 2. Obtener equipos desde la API de ESPN para la cartelera de partidos de hoy
+# Obtener equipos desde la API de ESPN para la cartelera de hoy
 @st.cache_data(ttl=3600)
 def get_espn_teams():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=50"
@@ -132,16 +128,6 @@ def get_todays_matchups():
 
 todays_matchups = get_todays_matchups()
 
-# --- MÓDULO DE CUOTAS DE CASINOS ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("🔒 Control de Cuotas de Casinos")
-def get_current_slot():
-    now = datetime.now().time()
-    return "slot_12am" if now < time(10, 0) else ("slot_10am" if now < time(17, 0) else "slot_5pm")
-
-current_slot = get_current_slot()
-st.sidebar.caption(f"🕒 Bloque de cuotas activo: **{current_slot.upper()}**")
-
 # --- BARRA LATERAL: MI PAPELETA ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎟️ Mi Papeleta de Parlay")
@@ -187,7 +173,7 @@ with tab1:
 
 with tab2:
     st.subheader("🔥 Picks Blindados del Día")
-    st.info("💡 Lee directamente los datos de tus hojas de Google Sheets para los cálculos y filtros 5/5.")
+    st.info("💡 Lectura directa desde tus hojas de Google Sheets.")
 
 with tab3:
     st.subheader("🎟️ Seguimiento de Mi Papeleta")
@@ -200,38 +186,27 @@ with tab3:
 with tab4:
     st.subheader("👤 Vista Individual desde Google Sheets")
     
-    # Aquí defines los nombres de tus hojas de Google Sheets (tus equipos)
-    # Puedes ajustarlo dinámicamente o listar las pestañas de tu archivo
+    # Nombres de tus pestañas (asegúrate de que coincidan con los nombres de las hojas en tu archivo)
     lista_equipos_sheets = [
-        "Portland Trail Blazers", "Los Angeles Lakers", "Boston Celtics", 
-        "Golden State Warriors", "San Antonio Spurs", "Phoenix Suns", "Denver Nuggets"
+        "Trail Blazers", "Lakers", "Celtics", 
+        "Warriors", "Spurs", "Suns", "Nuggets"
     ]
     
-    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja Google Sheets)", sorted(lista_equipos_sheets))
+    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
-    # Cargamos los datos limpios de la hoja seleccionada
     df_sheet = load_team_data(selected_sheet_name)
     
     if df_sheet.empty:
-        st.warning(f"⚠️ No se pudo leer la hoja '{selected_sheet_name}' o está vacía. Verifica que el nombre de la pestaña coincida exactamente en tu Google Sheet.")
+        st.warning(f"⚠️ No se pudo leer la hoja '{selected_sheet_name}' o está vacía. Verifica el nombre exacto de la pestaña en tu Google Sheet.")
     else:
-        # Detectamos automáticamente las columnas del jugador en tu hoja
         col_jugador = next((c for c in df_sheet.columns if 'jugador' in c.lower() or 'player' in c.lower() or 'nombre' in c.lower()), df_sheet.columns[0])
         
         lista_jugadores_sheet = sorted(df_sheet[col_jugador].dropna().unique())
-        selected_player_sheet = st.sidebar.selectbox("👤 Seleccionar Jugador de la Hoja", lista_jugadores_sheet)
+        selected_player_sheet = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores_sheet)
         
-        # Filtramos los registros correspondientes al jugador en ese equipo
         df_display = df_sheet[df_sheet[col_jugador] == selected_player_sheet]
         
         st.write(f"### 📋 Registros de {selected_player_sheet} | {selected_sheet_name}")
         st.dataframe(df_display, use_container_width=True)
         
-        # Métricas y validación de líneas si las columnas numéricas existen
-        try:
-            # Aseguramos columnas clave de rendimiento (puntos, rebotes, asistencias, etc.)
-            st.markdown("---")
-            st.subheader("🛡️ Escáner de Alta Seguridad (Filtro 5/5)")
-            st.success("✅ Datos cargados correctamente desde tu Google Sheet sin depender de APIs externas.")
-        except Exception as ex:
-            st.info("Configura las columnas numéricas de tu hoja (PTS, REB, AST, etc.) para habilitar los escáneres automáticos.")
+        st.success("✅ Datos cargados exitosamente desde Google Sheets.")
