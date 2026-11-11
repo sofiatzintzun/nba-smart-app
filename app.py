@@ -3,15 +3,8 @@ import pandas as pd
 import requests
 import random
 from datetime import datetime, time
-import locale
 
-# Intentamos configurar el español para la fecha (si el sistema lo soporta)
-try:
-    locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-except:
-    pass
-
-st.set_page_config(page_title="NBA L5 Parlay Master - Hoy", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Master - Papeleta", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -61,10 +54,22 @@ st.markdown("""
         margin-top: 20px;
         margin-bottom: 20px;
     }
+    .ticket-box {
+        background-color: #1a1a1a;
+        border: 2px solid #38ef7d;
+        padding: 15px;
+        border-radius: 10px;
+        color: white;
+        margin-bottom: 15px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Master — Escáner de Partidos de Hoy")
+st.title("🏀 NBA L5 Parlay Master — Papeleta & Seguimiento")
+
+# --- INICIALIZAR LA PAPELETA EN LA SESIÓN ---
+if 'my_ticket' not in st.session_state:
+    st.session_state.my_ticket = []
 
 # --- GESTIÓN SEGURA DE CREDENCIALES ---
 try:
@@ -191,6 +196,25 @@ with st.sidebar.expander("⚙️ Forzar actualización manual"):
         else:
             st.error("Contraseña incorrecta.")
 
+# --- BARRA LATERAL: MI PAPELETA / BOLETO VIRTUAL ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎟️ Mi Papeleta de Parlay")
+
+if st.session_state.my_ticket:
+    st.sidebar.write(f"Selecciones guardadas: **{len(st.session_state.my_ticket)}**")
+    for idx, item in enumerate(st.session_state.my_ticket):
+        col_t1, col_t2 = st.sidebar.columns([4, 1])
+        col_t1.text(f"• {item['Jugador']}: {item['Pick']}")
+        if col_t2.button("❌", key=f"del_{idx}"):
+            st.session_state.my_ticket.pop(idx)
+            st.rerun()
+            
+    if st.sidebar.button("🗑️ Vaciar Papeleta"):
+        st.session_state.my_ticket = []
+        st.rerun()
+else:
+    st.sidebar.info("Tu papeleta está vacía. Agrega picks desde el escáner.")
+
 # Generador de datos simulados realistas para partidos recientes
 def get_player_stats_simulation(player_name):
     rows = []
@@ -229,19 +253,17 @@ def get_player_stats_simulation(player_name):
     return pd.DataFrame(rows)
 
 # --- NAVEGACIÓN PRINCIPAL EN PESTAÑAS (TABS) ---
-tab1, tab2 = st.tabs(["🛡️ Escáner de Partidos de Hoy (Picks 5/5)", "👤 Vista Individual por Jugador"])
+tab1, tab2, tab3 = st.tabs(["🛡️ Escáner de Partidos de Hoy", "🎟️ Ver Mi Papeleta & Resultados", "👤 Vista Individual por Jugador"])
 
 with tab1:
     st.subheader("🔥 Picks Blindados de los Equipos que Juegan HOY")
-    st.markdown("Este escáner detecta automáticamente qué equipos tienen partido programado para hoy y busca las mejores opciones con **efectividad perfecta de 5/5** en sus líneas recientes para armar tu SGP o parlay.")
+    st.markdown("Este escáner detecta automáticamente qué equipos tienen partido programado para hoy y busca las mejores opciones con **efectividad perfecta de 5/5**. Puedes agregar tus favoritas directo a tu papeleta.")
 
     if st.button("🚀 Buscar Picks Blindados para los Juegos de Hoy"):
         with st.spinner("Verificando cartelera del día y escaneando planteles..."):
             global_blindados = []
             
-            # Filtramos únicamente los equipos que juegan hoy
             active_teams_list = [t for t in nba_teams if t['abbreviation'] in todays_active_abbrevs]
-            
             if not active_teams_list:
                 active_teams_list = nba_teams[:10]
             
@@ -283,27 +305,78 @@ with tab1:
                                     'Jugador': p_name,
                                     'Equipo': t_name,
                                     'Pick': f"Más de {line_val} {lbl}",
-                                    'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} ({5}/5 overs)"
+                                    'Columna': col,
+                                    'Linea': line_val,
+                                    'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} (5/5 overs)"
                                 })
 
-            # Obtenemos la fecha actual formateada en español
             fecha_actual_str = datetime.now().strftime("%A, %d de %B de %Y")
 
             if global_blindados:
                 st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para los partidos de hoy, {fecha_actual_str}!")
-                for item in global_blindados:
-                    st.markdown(f"""
-                        <div class='safe-pick-card'>
-                            ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
-                            🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
-                        </div>
-                    """, unsafe_allow_html=True)
+                
+                for idx, item in enumerate(global_blindados):
+                    col_card1, col_card2 = st.columns([4, 1])
+                    with col_card1:
+                        st.markdown(f"""
+                            <div class='safe-pick-card' style='margin-bottom:0px;'>
+                                ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
+                                🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    with col_card2:
+                        # Botón para agregar a la papeleta
+                        if st.button("➕ Agregar", key=f"add_pick_{idx}"):
+                            # Evitar duplicados
+                            if item not in st.session_state.my_ticket:
+                                st.session_state.my_ticket.append(item)
+                                st.toast(f"¡Agregado a tu papeleta: {item['Jugador']}!", icon="🎟️")
+                            else:
+                                st.toast("Este pick ya está en tu papeleta.", icon="⚠️")
+                    st.write("")
             else:
-                st.info(f"No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy, {fecha_actual_str}, con los umbrales actuales.")
+                st.info(f"No se detectaron picks con efectividad estricta de 5/5 para los partidos de hoy, {fecha_actual_str}.")
     else:
-        st.info("Haz clic em el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
+        st.info("Haz clic en el botón **'🚀 Buscar Picks Blindados para los Juegos de Hoy'** para generar el reporte de la jornada.")
 
 with tab2:
+    st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
+    st.markdown("Aquí puedes llevar el registro de tus selecciones y marcar de forma interactiva si se van cumpliendo o fallando en la jornada.")
+
+    if st.session_state.my_ticket:
+        st.markdown("<div class='ticket-box'>", unsafe_allow_html=True)
+        st.write(f"### 📋 Boleto Activo ({len(st.session_state.my_ticket)} selecciones)")
+        
+        # Simulador de estado del parlay
+        hits_count = 0
+        
+        for idx, ticket_item in enumerate(st.session_state.my_ticket):
+            c_check, c_info = st.columns([1, 5])
+            # Casilla de verificación para simular si salió o no salió
+            is_hit = c_check.checkbox("¿Se dio?", key=f"chk_hit_{idx}")
+            if is_hit:
+                hits_count += 1
+                status_text = "🟢 ACERTADO"
+            else:
+                status_text = "⏳ PENDIENTE / POR JUGAR"
+                
+            c_info.markdown(f"**{ticket_item['Jugador']}** ({ticket_item['Equipo']})<br>🎯 *{ticket_item['Pick']}* — **{status_text}**")
+            st.divider()
+            
+        if hits_count == len(st.session_state.my_ticket):
+            st.success("🎉 ¡Felicidades! Todas las selecciones marcadas de tu papeleta se han cumplido con éxito.")
+        else:
+            st.info(f"Progreso actual: {hits_count} de {len(st.session_state.my_ticket)} selecciones marcadas como acertadas.")
+            
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        if st.button("🗑️ Limpiar Toda la Papeleta"):
+            st.session_state.my_ticket = []
+            st.rerun()
+    else:
+        st.warning("No tienes ningún pick agregado en tu papeleta. Ve a la pestaña **'Escáner de Partidos de Hoy'** y haz clic en 'Agregar' en las opciones que te interesen.")
+
+with tab3:
     team_names = {t['full_name']: t for t in nba_teams}
     selected_team_name = st.sidebar.selectbox("🏀 Seleccionar Equipo", sorted(team_names.keys()))
     selected_team_info = team_names[selected_team_name]
