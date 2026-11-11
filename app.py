@@ -304,27 +304,42 @@ with tab4:
     
     # Lista completa de las 30 hojas (equipos) de la NBA en tu Google Sheets
     lista_equipos_sheets = [
-        "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
+        "Pistons", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
         "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
         "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
         "Magic", "Knicks", "76ers", "Bulls", "Pacers", "Nets", "Hornets",
-        "Wizards", "Pistons", "Raptors"
+        "Wizards", "Raptors"
     ]
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
+    # Cargamos los datos de la hoja seleccionada
     df_sheet = load_team_data(selected_sheet_name)
     
     if df_sheet.empty:
-        st.warning(f"⚠️ No se pudo leer la hoja '{selected_sheet_name}' o está vacía. Verifica que el nombre de la pestaña coincida exactamente en tu archivo de Google Sheets.")
+        st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o no se pudo conectar. Verifica en tu archivo de Google Sheets que exista una pestaña llamada exactamente **{selected_sheet_name}** y que el archivo sea público o tenga permisos de lectura.")
     else:
-        col_jugador = next((c for c in df_sheet.columns if 'jugador' in c.lower() or 'player' in c.lower() or 'nombre' in c.lower()), df_sheet.columns[0])
+        st.success(f"✅ ¡Conexión exitosa con la hoja: **{selected_sheet_name}**!")
         
+        # Detectar la columna del jugador de forma flexible
+        posibles_nombres = ['jugador', 'player', 'nombre', 'name', 'athlete']
+        col_jugador = None
+        for col in df_sheet.columns:
+            if any(p in str(col).lower() for p in posibles_nombres):
+                col_jugador = col
+                break
+        
+        if not col_jugador:
+            col_jugador = df_sheet.columns[0]
+            
         lista_jugadores_sheet = sorted(df_sheet[col_jugador].dropna().unique())
-        selected_player_sheet = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores_sheet)
         
-        df_display = df_sheet[df_sheet[col_jugador] == selected_player_sheet]
-        
-        st.write(f"### 📋 Registros de {selected_player_sheet} | {selected_sheet_name}")
-        st.dataframe(df_display, use_container_width=True)
-        st.success("✅ Datos sincronizados correctamente con Google Sheets.")
+        if len(lista_jugadores_sheet) > 0:
+            selected_player_sheet = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores_sheet)
+            
+            df_display = df_sheet[df_sheet[col_jugador] == selected_player_sheet]
+            
+            st.write(f"### 📋 Registros de {selected_player_sheet} | {selected_sheet_name}")
+            st.dataframe(df_display, use_container_width=True)
+        else:
+            st.warning(f"La hoja '{selected_sheet_name}' tiene datos, pero no se detectaron nombres de jugadores en la columna '{col_jugador}'.")
