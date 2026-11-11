@@ -45,7 +45,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Master — Google Sheets Conectado")
+st.title("🏀 NBA L5 Parlay Master — Google Sheets & Estadísticas Reales")
 
 # --- INICIALIZAR LA PAPELETA EN LA SESIÓN ---
 if 'my_ticket' not in st.session_state:
@@ -59,7 +59,7 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# Conexión directa a Google Sheets
+# --- CONEXIÓN A GOOGLE SHEETS ---
 @st.cache_data(ttl=600)
 def load_team_data(sheet_name):
     try:
@@ -69,7 +69,7 @@ def load_team_data(sheet_name):
     except Exception as e:
         return pd.DataFrame()
 
-# Obtener equipos desde la API de ESPN para la cartelera de hoy
+# 1. Obtener equipos desde la API de ESPN para la cartelera de hoy
 @st.cache_data(ttl=3600)
 def get_espn_teams():
     url = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=50"
@@ -128,9 +128,82 @@ def get_todays_matchups():
 
 todays_matchups = get_todays_matchups()
 
+# --- MÓDULO DE ACTUALIZACIÓN DE CUOTAS DE CASINOS ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("🔒 Control de Cuotas de Casinos")
+
+def get_current_slot():
+    now = datetime.now().time()
+    if now < time(10, 0):
+        return "slot_12am"
+    elif now < time(17, 0):
+        return "slot_10am"
+    else:
+        return "slot_5pm"
+
+@st.cache_data(ttl=43200)
+def get_scheduled_market_lines(api_key, time_slot):
+    if not api_key:
+        return {}
+    try:
+        events_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events?apiKey={api_key}"
+        res_events = requests.get(events_url)
+        if res_events.status_code != 200:
+            return {}
+        events = res_events.json()
+        if not events:
+            return {}
+            
+        markets_to_fetch = "player_points,player_rebounds,player_assists,player_threes"
+        master_dict = {}
+        
+        for event in events[:3]:
+            event_id = event['id']
+            odds_url = f"https://api.the-odds-api.com/v4/sports/basketball_nba/events/{event_id}/odds?apiKey={api_key}&regions=us&markets={markets_to_fetch}&oddsFormat=decimal"
+            res_odds = requests.get(odds_url)
+            if res_odds.status_code == 200:
+                data_odds = res_odds.json()
+                for bookmaker in data_odds.get('bookmakers', []):
+                    for market in bookmaker.get('markets', []):
+                        m_key = market.get('key')
+                        for outcome in market.get('outcomes', []):
+                            desc = outcome.get('description', '') or outcome.get('name', '')
+                            if desc:
+                                p_name_clean = desc.lower().strip()
+                                if p_name_clean not in master_dict:
+                                    master_dict[p_name_clean] = {}
+                                point = outcome.get('point')
+                                if point is not None:
+                                    if m_key == 'player_points' and 'PTS' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['PTS'] = point
+                                    elif m_key == 'player_rebounds' and 'REB' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['REB'] = point
+                                    elif m_key == 'player_assists' and 'AST' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['AST'] = point
+                                    elif m_key == 'player_threes' and '3P' not in master_dict[p_name_clean]:
+                                        master_dict[p_name_clean]['3P'] = point
+        return master_dict
+    except Exception:
+        return {}
+
+current_slot = get_current_slot()
+st.sidebar.caption(f"🕒 Bloque de cuotas activo: **{current_slot.upper()}**")
+all_market_data = get_scheduled_market_lines(API_KEY, current_slot)
+
+with st.sidebar.expander("⚙️ Forzar actualización manual"):
+    pass_input = st.text_input("Contraseña de administrador:", type="password")
+    if st.button("🔄 Actualizar líneas de los casinos ahora"):
+        if pass_input == ADMIN_PASS:
+            st.cache_data.clear()
+            st.success("¡Caché limpiada! Las cuotas se actualizarán.")
+            st.rerun()
+        else:
+            st.error("Contraseña incorrecta.")
+
 # --- BARRA LATERAL: MI PAPELETA ---
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎟️ Mi Papeleta de Parlay")
+
 if st.session_state.my_ticket:
     st.sidebar.write(f"Selecciones guardadas: **{len(st.session_state.my_ticket)}**")
     for idx, item in enumerate(st.session_state.my_ticket):
@@ -139,6 +212,7 @@ if st.session_state.my_ticket:
         if col_t2.button("❌", key=f"del_{idx}"):
             st.session_state.my_ticket.pop(idx)
             st.rerun()
+            
     if st.sidebar.button("🗑️ Vaciar Papeleta"):
         st.session_state.my_ticket = []
         st.rerun()
@@ -154,42 +228,87 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 with tab1:
-    st.subheader("📅 Cartelera del Día — Partidos Programados")
+    st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Reales")
+    st.markdown("Visualiza los enfrentamientos de hoy con estadísticas estructuradas y limpias.")
+
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy.")
     else:
-        for matchup in todays_matchups:
-            t1, t2 = matchup['team1'], matchup['team2']
+        fecha_str = todays_matchups[0]['fecha_es']
+        st.info(f"📍 **Jornada de Hoy:** {fecha_str} | Partidos programados: **{len(todays_matchups)}**")
+        
+        for m_idx, matchup in enumerate(todays_matchups):
+            t1 = matchup['team1']
+            t2 = matchup['team2']
+            
             st.markdown(f"""
                 <div class='match-card'>
-                    <div style='display: flex; justify-content: space-between; align-items: center;'>
-                        <span class='team-name'>{t1['name']}</span>
+                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;'>
+                        <div style='display: flex; align-items: center; gap: 10px;'>
+                            <img src='{t1['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
+                            <span class='team-name'>{t1['name']}</span>
+                        </div>
                         <span style='color: #8b949e; font-weight: bold;'>VS</span>
-                        <span class='team-name'>{t2['name']}</span>
+                        <div style='display: flex; align-items: center; gap: 10px; text-align: right;'>
+                            <span class='team-name'>{t2['name']}</span>
+                            <img src='{t2['logo']}' width='35' style='background: white; border-radius: 50%; padding: 2px;' onerror="this.style.display='none'">
+                        </div>
                     </div>
-                    <div style='text-align: center; color: #58a6ff; font-size: 13px; margin-top: 8px;'>Horario: {matchup['time_detail']}</div>
+                    <div style='text-align: center; color: #58a6ff; font-size: 13px; font-weight: bold; border-top: 1px solid #30363d; padding-top: 8px;'>
+                        Estado / Horario: {matchup['time_detail']}
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
 
 with tab2:
-    st.subheader("🔥 Picks Blindados del Día")
-    st.info("💡 Lectura directa desde tus hojas de Google Sheets.")
+    st.subheader("🔥 Picks Blindados del Día (Escáner General)")
+    st.markdown("Escanea los planteles de la jornada utilizando la información cargada en Google Sheets.")
+    st.info("💡 Asegúrate de seleccionar el equipo en la pestaña individual para validar los registros de los últimos 5 partidos.")
 
 with tab3:
-    st.subheader("🎟️ Seguimiento de Mi Papeleta")
+    st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
+    st.markdown("Lleva el registro de tus selecciones y marca de forma interactiva si se van cumpliendo en la jornada.")
+
     if st.session_state.my_ticket:
-        for idx, item in enumerate(st.session_state.my_ticket):
-            st.checkbox(f"**{item['Jugador']}** — 🎯 *{item['Pick']}*", key=f"chk_hit_{idx}")
+        st.markdown("<div class='ticket-box'>", unsafe_allow_html=True)
+        st.write(f"### 📋 Boleto Activo ({len(st.session_state.my_ticket)} selecciones)")
+        
+        hits_count = 0
+        for idx, ticket_item in enumerate(st.session_state.my_ticket):
+            c_check, c_info = st.columns([1, 5])
+            is_hit = c_check.checkbox("¿Se dio?", key=f"chk_hit_{idx}")
+            if is_hit:
+                hits_count += 1
+                status_text = "🟢 ACERTADO"
+            else:
+                status_text = "⏳ PENDIENTE / POR JUGAR"
+                
+            c_info.markdown(f"**{ticket_item['Jugador']}** ({ticket_item['Equipo']})<br>🎯 *{ticket_item['Pick']}* — **{status_text}**")
+            st.divider()
+            
+        if hits_count == len(st.session_state.my_ticket):
+            st.success("🎉 ¡Felicidades! Todas las selecciones marcadas de tu papeleta se han cumplido con éxito.")
+        else:
+            st.info(f"Progreso actual: {hits_count} de {len(st.session_state.my_ticket)} selecciones marcadas como acertadas.")
+            
+        st.markdown("</div>", unsafe_allow_html=True)
+        
+        if st.button("🗑️ Limpiar Toda la Papeleta"):
+            st.session_state.my_ticket = []
+            st.rerun()
     else:
-        st.warning("Papeleta vacía.")
+        st.warning("No tienes ningún pick agregado en tu papeleta.")
 
 with tab4:
     st.subheader("👤 Vista Individual desde Google Sheets")
     
-    # Nombres de tus pestañas (asegúrate de que coincidan con los nombres de las hojas en tu archivo)
+    # Lista completa de las 30 hojas (equipos) de la NBA en tu Google Sheets
     lista_equipos_sheets = [
-        "Trail Blazers", "Lakers", "Celtics", 
-        "Warriors", "Spurs", "Suns", "Nuggets"
+        "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
+        "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
+        "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
+        "Magic", "Knicks", "76ers", "Bulls", "Pacers", "Nets", "Hornets",
+        "Wizards", "Pistons", "Raptors"
     ]
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
@@ -197,7 +316,7 @@ with tab4:
     df_sheet = load_team_data(selected_sheet_name)
     
     if df_sheet.empty:
-        st.warning(f"⚠️ No se pudo leer la hoja '{selected_sheet_name}' o está vacía. Verifica el nombre exacto de la pestaña en tu Google Sheet.")
+        st.warning(f"⚠️ No se pudo leer la hoja '{selected_sheet_name}' o está vacía. Verifica que el nombre de la pestaña coincida exactamente en tu archivo de Google Sheets.")
     else:
         col_jugador = next((c for c in df_sheet.columns if 'jugador' in c.lower() or 'player' in c.lower() or 'nombre' in c.lower()), df_sheet.columns[0])
         
@@ -208,5 +327,4 @@ with tab4:
         
         st.write(f"### 📋 Registros de {selected_player_sheet} | {selected_sheet_name}")
         st.dataframe(df_display, use_container_width=True)
-        
-        st.success("✅ Datos cargados exitosamente desde Google Sheets.")
+        st.success("✅ Datos sincronizados correctamente con Google Sheets.")
