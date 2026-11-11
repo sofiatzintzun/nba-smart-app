@@ -2,3 +2,4 @@ streamlit
 pandas
 nba_api
 numpy
+st-gsheets-connection
