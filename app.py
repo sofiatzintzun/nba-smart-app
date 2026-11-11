@@ -61,14 +61,13 @@ except Exception:
 
 # --- CONEXIÓN A GOOGLE SHEETS ULTRA ROBUSTA ---
 @st.cache_data(ttl=600)
-def load_team_data(sheet_name):
+def load_team_raw_data(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(worksheet=sheet_name, ttl=0)
         if not df.empty:
             return df, None
     except Exception as e:
-        # Método alternativo infalible si el archivo es público (Lector)
         try:
             sheet_url = "https://docs.google.com/spreadsheets/d/1r7GvrxEB4dGcjM8vsbh0Q8jSdQDeIT5lBala7v3wq0E/edit"
             csv_url = sheet_url.replace('/edit', f'/gviz/tq?tqx=out:csv&sheet={sheet_name}')
@@ -77,8 +76,52 @@ def load_team_data(sheet_name):
                 return df, None
         except Exception as alt_e:
             return pd.DataFrame(), f"GSheets Error: {str(e)} | CSV Alt Error: {str(alt_e)}"
-            
     return pd.DataFrame(), "La hoja devolvió datos vacíos o no se pudo acceder."
+
+# --- FUNCIÓN PARA PARSEAR BLOQUES VERTICALES DE JUGADORES ---
+def parse_player_blocks(df_raw):
+    """
+    Interpreta el formato vertical de la hoja donde cada jugador tiene su nombre
+    en una celda, seguido de la fila de encabezados y sus 5 filas de estadísticas.
+    """
+    players_dict = {}
+    current_player = None
+    current_rows = []
+    header_found = False
+    
+    for idx, row in df_raw.iterrows():
+        val_col0 = str(row.iloc[0]).strip()
+        
+        # Detectar si es el nombre de un jugador (fila con texto que no es encabezado ni NaN)
+        if val_col0 and val_col0.lower() not in ['nan', 'puntos', 'points', 'none']:
+            # Si ya veníamos procesando un jugador, lo guardamos antes de pasar al siguiente
+            if current_player and current_rows:
+                df_p = pd.DataFrame(current_rows)
+                if not df_p.empty:
+                    players_dict[current_player] = df_p
+            current_player = val_col0
+            current_rows = []
+            header_found = False
+            continue
+            
+        # Detectar la fila de encabezados ("Puntos", "Triples", etc.)
+        if val_col0.lower() in ['puntos', 'points']:
+            cols = [str(c).strip() for c in row.values]
+            header_found = True
+            continue
+            
+        # Si ya pasamos el encabezado y tenemos un jugador activo, recopilamos las filas de stats
+        if current_player and header_found:
+            if not row.isna().all() and str(row.iloc[0]).strip().lower() != 'nan':
+                current_rows.append(row.values)
+                
+    # Guardar el último jugador procesado
+    if current_player and current_rows:
+        df_p = pd.DataFrame(current_rows)
+        if not df_p.empty:
+            players_dict[current_player] = df_p
+            
+    return players_dict
 
 # 1. Obtener equipos desde la API de ESPN para la cartelera de hoy
 @st.cache_data(ttl=3600)
@@ -313,7 +356,6 @@ with tab3:
 with tab4:
     st.subheader("👤 Vista Individual desde Google Sheets")
     
-    # Lista completa de las 30 hojas (equipos) de la NBA en tu Google Sheets
     lista_equipos_sheets = [
         "Pistons", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
         "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
@@ -324,36 +366,45 @@ with tab4:
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
-    # Cargamos los datos usando nuestra función robusta de doble capa
-    df_sheet, error_msg = load_team_data(selected_sheet_name)
+    df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
     if error_msg:
         st.error(f"❌ Error al conectar o leer Google Sheets: `{error_msg}`")
-        st.info("💡 Tip: Verifica que la pestaña exista exactamente con el nombre seleccionado y que el archivo esté compartido como 'Cualquier usuario con el enlace puede ser Lector'.")
-    elif df_sheet.empty:
-        st.warning(f"⚠️ La hoja '{selected_sheet_name}' se conectó pero devolvió un DataFrame vacío. Asegúrate de que la primera fila contenga los encabezados (ej. 'Jugador') y que haya datos debajo.")
+    elif df_raw.empty:
+        st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía.")
     else:
-        st.success(f"✅ ¡Conexión exitosa con la hoja: **{selected_sheet_name}**!")
+        # Parseamos los bloques verticales de tu hoja
+        players_dict = parse_player_blocks(df_raw)
         
-        # Detectar la columna del jugador de forma flexible
-        posibles_nombres = ['jugador', 'player', 'nombre', 'name', 'athlete']
-        col_jugador = None
-        for col in df_sheet.columns:
-            if any(p in str(col).lower() for p in posibles_nombres):
-                col_jugador = col
-                break
-        
-        if not col_jugador:
-            col_jugador = df_sheet.columns[0]
-            
-        lista_jugadores_sheet = sorted(df_sheet[col_jugador].dropna().unique())
-        
-        if len(lista_jugadores_sheet) > 0:
-            selected_player_sheet = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores_sheet)
-            
-            df_display = df_sheet[df_sheet[col_jugador] == selected_player_sheet]
-            
-            st.write(f"### 📋 Registros de {selected_player_sheet} | {selected_sheet_name}")
-            st.dataframe(df_display, use_container_width=True)
+        if not players_dict:
+            st.warning("No se pudieron detectar bloques de jugadores en esta hoja. Verifica el formato.")
         else:
-            st.warning(f"La hoja '{selected_sheet_name}' tiene datos, pero no se detectaron nombres de jugadores en la columna '{col_jugador}'.")
+            lista_jugadores = sorted(list(players_dict.keys()))
+            selected_player = st.sidebar.selectbox("👤 Seleccionar Jugador", lista_jugadores)
+            
+            df_player_raw = players_dict[selected_player]
+            
+            # Limpiamos y asignamos las columnas correctas según tu formato de hoja
+            # Columnas esperadas: Puntos, Triples, Rebotes, Asistencias, Robos, Bloqueos
+            if df_player_raw.shape[1] >= 6:
+                df_display = df_player_raw.iloc[:, :6].copy()
+                df_display.columns = ['Puntos', 'Triples', 'Rebotes', 'Asistencias', 'Robos', 'Bloqueos']
+            else:
+                df_display = df_player_raw.copy()
+                
+            # Convertir a valores numéricos para métricas
+            for col in df_display.columns:
+                df_display[col] = pd.to_numeric(df_display[col], errors='coerce').fillna(0).astype(int)
+                
+            st.write(f"### 📋 Registros de Últimos Partidos: {selected_player} | {selected_sheet_name}")
+            
+            # Aplicar formato condicional
+            styled_df = df_display.style.map(highlight_cells, subset=df_display.columns.tolist())
+            st.table(styled_df)
+            
+            # Métricas de promedio
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Avg Puntos", f"{df_display['Puntos'].mean():.1f}")
+            c2.metric("Avg Rebotes", f"{df_display['Rebotes'].mean():.1f}")
+            c3.metric("Avg Asistencias", f"{df_display['Asistencias'].mean():.1f}")
+            c4.metric("Avg Triples", f"{df_display['Triples'].mean():.1f}")
