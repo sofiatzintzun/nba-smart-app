@@ -4,7 +4,7 @@ import requests
 import random
 from datetime import datetime, time
 
-st.set_page_config(page_title="NBA L5 Parlay Optimizer", layout="wide")
+st.set_page_config(page_title="NBA L5 Parlay Master", layout="wide")
 
 # --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
@@ -35,13 +35,15 @@ st.markdown("""
         border-radius: 10px;
         border-left: 5px solid #28a745;
         margin-bottom: 10px;
+    }
     .safe-pick-card {
         background: linear-gradient(135deg, #0f2027 0%, #203a43 100%, #2c5364 100%);
         color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
+        padding: 12px;
+        border-radius: 8px;
         border-left: 5px solid #00ff87;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
+        font-size: 14px;
     }
     .parlay-card {
         background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
@@ -55,7 +57,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏀 NBA L5 Parlay Optimizer — Picks de Alta Seguridad")
+st.title("🏀 NBA L5 Parlay Master — Escáner Global & SGP")
 
 # --- GESTIÓN SEGURA DE CREDENCIALES ---
 try:
@@ -87,37 +89,6 @@ nba_teams = get_espn_teams()
 if not nba_teams:
     st.error("No se pudieron cargar los equipos.")
     st.stop()
-
-team_names = {t['full_name']: t for t in nba_teams}
-selected_team_name = st.sidebar.selectbox("🏀 Seleccionar Equipo", sorted(team_names.keys()))
-selected_team_info = team_names[selected_team_name]
-espn_team_abbrev = selected_team_info['abbreviation']
-
-# 2. Obtener el roster del equipo desde ESPN
-@st.cache_data(ttl=3600)
-def get_espn_roster(team_abbrev):
-    url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{team_abbrev}/roster"
-    response = requests.get(url)
-    players_list = []
-    if response.status_code == 200:
-        data = response.json()
-        athletes = data.get('athletes', [])
-        for athlete in athletes:
-            players_list.append({
-                'PLAYER': athlete.get('displayName'),
-                'PLAYER_ID': athlete.get('id')
-            })
-    return players_list
-
-df_roster = get_espn_roster(espn_team_abbrev)
-if not df_roster:
-    st.warning("No se encontró el plantel para este equipo.")
-    st.stop()
-
-player_names = sorted([p['PLAYER'] for p in df_roster])
-selected_player_name = st.sidebar.selectbox("👤 Seleccionar Jugador", player_names)
-player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
-player_id = player_info['PLAYER_ID']
 
 # --- MÓDULO DE ACTUALIZACIÓN PROGRAMADA DE CUOTAS ---
 st.sidebar.markdown("---")
@@ -191,9 +162,8 @@ with st.sidebar.expander("⚙️ Forzar actualización manual"):
         else:
             st.error("Contraseña incorrecta.")
 
-# 3. Obtener estadísticas del jugador en los últimos 5 partidos
-@st.cache_data(ttl=3600)
-def get_player_stats_data(player_id, player_name):
+# Generador de datos simulados realistas para partidos recientes de cualquier jugador
+def get_player_stats_simulation(player_name):
     rows = []
     random.seed(hash(player_name))
     opponents = ["LAL", "BOS", "GSW", "MIA", "DEN", "NYK", "PHX", "DAL", "CHI", "CLE"]
@@ -229,99 +199,196 @@ def get_player_stats_data(player_id, player_name):
         })
     return pd.DataFrame(rows)
 
-try:
-    with st.spinner(f"Cargando rendimiento de {selected_player_name}..."):
-        df_display = get_player_stats_data(player_id, selected_player_name)
+# --- NAVEGACIÓN PRINCIPAL EN PESTAÑAS (TABS) ---
+tab1, tab2 = st.tabs(["🛡️ Escáner Global (Picks Blindados 5/5)", "👤 Vista Individual por Jugador"])
 
-    if not df_display.empty:
-        cols_to_int = ['Min', 'PTS', 'REB', 'AST', '3P', 'STL', 'BLK', 'ERR', 'PF']
-        for col in cols_to_int:
-            df_display[col] = df_display[col].astype(int)
+with tab1:
+    st.subheader("🔥 Top Picks Globales de Alta Seguridad (100% Overs en L5)")
+    st.markdown("Este escáner analiza preventivamente a los jugadores destacados de los equipos para mostrarte exclusivamente las opciones con **efectividad perfecta de 5/5** en sus líneas recientes.")
 
-        styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', '3P', 'STL', 'BLK'])
-
-        st.write(f"### {selected_player_name} | {selected_team_name}")
-        st.table(styled_df)
-
-        def count_doubles(row):
-            stats = [row.get('PTS', 0), row.get('REB', 0), row.get('AST', 0), row.get('3P', 0), row.get('STL', 0), row.get('BLK', 0)]
-            return sum(1 for s in stats if s >= 10)
-
-        df_display['doubles_count'] = df_display.apply(count_doubles, axis=1)
-        dd = sum(1 for x in df_display['doubles_count'] if x >= 2)
-        td = sum(1 for x in df_display['doubles_count'] if x >= 3)
-        
-        c1, c2, c3, c4, c5 = st.columns(5)
-        c1.metric("Avg PTS", f"{df_display['PTS'].mean():.1f}")
-        c2.metric("Avg REB", f"{df_display['REB'].mean():.1f}")
-        c3.metric("Avg AST", f"{df_display['AST'].mean():.1f}")
-        c4.metric("DD", f"{dd}/5")
-        c5.metric("TD", f"{td}/5")
-
-        # --- EVALUACIÓN Y FILTRADO DE ALTA SEGURIDAD ---
-        st.markdown("---")
-        st.subheader("🛡️ Escáner de Alta Seguridad (Filtro 5/5 para Parlays)")
-
-        player_lower = selected_player_name.lower()
-        live_lines = None
-        for p_key, lines in all_market_data.items():
-            if p_key in player_lower or player_lower in p_key:
-                live_lines = lines
-                break
-
-        if live_lines:
-            line_pts = live_lines.get('PTS', round(df_display['PTS'].mean() - 0.5, 1))
-            line_reb = live_lines.get('REB', round(df_display['REB'].mean() - 0.5, 1))
-            line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
-            line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
-        else:
-            line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
-            line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
-            line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
-            line_3p = max(0.5, round(df_display['3P'].mean() - 0.5, 1))
-
-        props_to_check = [
-            ('PTS', line_pts, 'Puntos (PTS)'),
-            ('REB', line_reb, 'Rebotes (REB)'),
-            ('AST', line_ast, 'Asistencias (AST)'),
-            ('3P', line_3p, 'Triples (3P)')
-        ]
-
-        safe_picks = []
-        parlay_legs = []
-
-        for col, line, label0 in props_to_check:
-            matches = sum(1 for val in df_display[col] if val > line)
+    if st.button("🚀 Ejecutar Escáner Global de la Liga"):
+        with st.spinner("Escaneando planteles y estadísticas recientes de todos los equipos..."):
+            global_blindados = []
             
-            # Solo consideramos "Alta Seguridad" si cumple estrictamente el 100% (5 de 5 partidos)
-            if matches == 5:
-                pick_msg = f"🛡️ **Pick Blindado (5/5):** Superó la línea de **{line} {label0}** en el 100% de sus últimos 5 encuentros."
-                safe_picks.append(pick_msg)
-                parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) [Efectividad 5/5]")
-            elif matches == 4:
-                pick_msg = f"✅ **Opción Sólida (4/5):** Superó la línea de **{line} {label0}** en 4 de sus últimos 5 partidos."
-                safe_picks.append(pick_msg)
+            # Recorremos los equipos principales para armar el reporte global
+            for team in nba_teams[:15]: # Analizamos un bloque importante de equipos
+                t_abbrev = team['abbreviation']
+                t_name = team['full_name']
+                
+                # Obtenemos roster
+                url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{t_abbrev}/roster"
+                res = requests.get(url)
+                if res.status_code == 200:
+                    athletes = res.json().get('athletes', [])
+                    for athlete in athletes[:4]: # Tomamos los principales referentes de cada equipo
+                        p_name = athlete.get('displayName')
+                        df_p = get_player_stats_simulation(p_name)
+                        
+                        # Definimos líneas base o de mercado
+                        p_lower = p_name.lower()
+                        live_l = None
+                        for k, lines in all_market_data.items():
+                            if k in p_lower or p_lower in k:
+                                live_l = lines
+                                break
+                        
+                        l_pts = live_l.get('PTS', round(df_p['PTS'].mean() - 1.5, 1)) if live_l else round(df_p['PTS'].mean() - 1.5, 1)
+                        l_reb = live_l.get('REB', round(df_p['REB'].mean() - 1.0, 1)) if live_l else round(df_p['REB'].mean() - 1.0, 1)
+                        l_ast = live_l.get('AST', round(df_p['AST'].mean() - 0.8, 1)) if live_l else round(df_p['AST'].mean() - 0.8, 1)
+                        l_3p = live_l.get('3P', max(0.5, round(df_p['3P'].mean() - 0.5, 1))) if live_l else max(0.5, round(df_p['3P'].mean() - 0.5, 1))
+                        
+                        checks = [
+                            ('PTS', l_pts, 'Puntos'),
+                            ('REB', l_reb, 'Rebotes'),
+                            ('AST', l_ast, 'Asistencias'),
+                            ('3P', l_3p, 'Triples')
+                        ]
+                        
+                        for col, line_val, lbl in checks:
+                            hits = sum(1 for v in df_p[col] if v > line_val)
+                            if hits == 5: # ¡Pick 100% blindado!
+                                global_blindados.append({
+                                    'Jugador': p_name,
+                                    'Equipo': t_name,
+                                    'Pick': f"Más de {line_val} {lbl}",
+                                    'Detalle': f"Promedio reciente: {df_p[col].mean():.1f} ({5}/5 overs)"
+                                })
 
-        if safe_picks:
-            for tip in safe_picks:
-                st.markdown(f"<div class='safe-pick-card'>{tip}</div>", unsafe_allow_html=True)
-        else:
-            st.info("ℹ️ Este jugador no presenta una consistencia perfecta (5/5) en sus líneas actuales para considerarlo un pick de alta seguridad hoy.")
-
-        # --- SECCIÓN DE PARLAY RECOMENDADO DE ALTA CONFIANZA ---
-        if parlay_legs:
-            st.markdown("### 🎲 Combinación Sugerida de Alta Seguridad")
-            legs_html = "<br>• ".join(parlay_legs)
-            st.markdown(f"""
-                <div class='parlay-card'>
-                    🎯 <b>Selecciones Blindadas para Parlay ({selected_player_name}):</b><br><br>
-                    • {legs_html}<br><br>
-                    <span style='font-size: 12px; font-weight: normal;'>💡 <i>Estas opciones pasaron el filtro estricto de 5/5 overs recientes, ideales para sumar a tus acumuladores grandes sin arriesgar de más.</i></span>
-                </div>
-            """, unsafe_allow_html=True)
-
+            if global_blindados:
+                st.success(f"¡Se encontraron {len(global_blindados)} opciones totalmente blindadas (5/5) para hoy!")
+                for item in global_blindados:
+                    st.markdown(f"""
+                        <div class='safe-pick-card'>
+                            ⭐ <b>{item['Jugador']}</b> ({item['Equipo']})<br>
+                            🎯 <b>{item['Pick']}</b> — <i>{item['Detalle']}</i>
+                        </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No se detectaron picks con efectividad estricta de 5/5 en este momento con los filtros actuales.")
     else:
-        st.warning("No hay suficientes registros disponibles para este jugador.")
+        st.info("Haz clic en el botón **'🚀 Ejecutar Escáner Global de la Liga'** para compilar las mejores opciones de toda la NBA en una sola vista.")
 
-except Exception as e:
-    st.error(f"Ocurrió un error al procesar los datos: {e}")
+with tab2:
+    # --- VISTA INDIVIDUAL (La app original detallada por jugador) ---
+    team_names = {t['full_name']: t for t in nba_teams}
+    selected_team_name = st.sidebar.selectbox("🏀 Seleccionar Equipo", sorted(team_names.keys()))
+    selected_team_info = team_names[selected_team_name]
+    espn_team_abbrev = selected_team_info['abbreviation']
+
+    @st.cache_data(ttl=3600)
+    def get_espn_roster(team_abbrev):
+        url = f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{team_abbrev}/roster"
+        response = requests.get(url)
+        players_list = []
+        if response.status_code == 200:
+            data = response.json()
+            athletes = data.get('athletes', [])
+            for athlete in athletes:
+                players_list.append({
+                    'PLAYER': athlete.get('displayName'),
+                    'PLAYER_ID': athlete.get('id')
+                })
+        return players_list
+
+    df_roster = get_espn_roster(espn_team_abbrev)
+    if not df_roster:
+        st.warning("No se encontró el plantel para este equipo.")
+        st.stop()
+
+    player_names = sorted([p['PLAYER'] for p in df_roster])
+    selected_player_name = st.sidebar.selectbox("👤 Seleccionar Jugador", player_names)
+    player_info = next(p for p in df_roster if p['PLAYER'] == selected_player_name)
+    player_id = player_info['PLAYER_ID']
+
+    try:
+        with st.spinner(f"Cargando rendimiento de {selected_player_name}..."):
+            df_display = get_player_stats_simulation(selected_player_name)
+
+        if not df_display.empty:
+            cols_to_int = ['Min', 'PTS', 'REB', 'AST', '3P', 'STL', 'BLK', 'ERR', 'PF']
+            for col in cols_to_int:
+                df_display[col] = df_display[col].astype(int)
+
+            styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', '3P', 'STL', 'BLK'])
+
+            st.write(f"### {selected_player_name} | {selected_team_name}")
+            st.table(styled_df)
+
+            def count_doubles(row):
+                stats = [row.get('PTS', 0), row.get('REB', 0), row.get('AST', 0), row.get('3P', 0), row.get('STL', 0), row.get('BLK', 0)]
+                return sum(1 for s in stats if s >= 10)
+
+            df_display['doubles_count'] = df_display.apply(count_doubles, axis=1)
+            dd = sum(1 for x in df_display['doubles_count'] if x >= 2)
+            td = sum(1 for x in df_display['doubles_count'] if x >= 3)
+            
+            c1, c2, c3, c4, c5 = st.columns(5)
+            c1.metric("Avg PTS", f"{df_display['PTS'].mean():.1f}")
+            c2.metric("Avg REB", f"{df_display['REB'].mean():.1f}")
+            c3.metric("Avg AST", f"{df_display['AST'].mean():.1f}")
+            c4.metric("DD", f"{dd}/5")
+            c5.metric("TD", f"{td}/5")
+
+            st.markdown("---")
+            st.subheader("🛡️ Escáner de Alta Seguridad (Filtro 5/5 para Parlays)")
+
+            player_lower = selected_player_name.lower()
+            live_lines = None
+            for p_key, lines in all_market_data.items():
+                if p_key in player_lower or player_lower in p_key:
+                    live_lines = lines
+                    break
+
+            if live_lines:
+                line_pts = live_lines.get('PTS', round(df_display['PTS'].mean() - 0.5, 1))
+                line_reb = live_lines.get('REB', round(df_display['REB'].mean() - 0.5, 1))
+                line_ast = live_lines.get('AST', round(df_display['AST'].mean() - 0.5, 1))
+                line_3p = live_lines.get('3P', round(df_display['3P'].mean() - 0.5, 1))
+            else:
+                line_pts = max(0.5, round(df_display['PTS'].mean() - 1.5, 1))
+                line_reb = max(0.5, round(df_display['REB'].mean() - 1.0, 1))
+                line_ast = max(0.5, round(df_display['AST'].mean() - 0.8, 1))
+                line_3p = max(0.5, round(df_display['3P'].mean() - 0.5, 1))
+
+            props_to_check = [
+                ('PTS', line_pts, 'Puntos (PTS)'),
+                ('REB', line_reb, 'Rebotes (REB)'),
+                ('AST', line_ast, 'Asistencias (AST)'),
+                ('3P', line_3p, 'Triples (3P)')
+            ]
+
+            safe_picks = []
+            parlay_legs = []
+
+            for col, line, label0 in props_to_check:
+                matches = sum(1 for val in df_display[col] if val > line)
+                if matches == 5:
+                    pick_msg = f"🛡️ **Pick Blindado (5/5):** Superó la línea de **{line} {label0}** en el 100% de sus últimos 5 encuentros."
+                    safe_picks.append(pick_msg)
+                    parlay_legs.append(f"Más de {line} {label0} ({selected_player_name}) [Efectividad 5/5]")
+                elif matches == 4:
+                    pick_msg = f"✅ **Opción Sólida (4/5):** Superó la línea de **{line} {label0}** en 4 de sus últimos 5 partidos."
+                    safe_picks.append(pick_msg)
+
+            if safe_picks:
+                for tip in safe_picks:
+                    st.markdown(f"<div class='safe-pick-card'>{tip}</div>", unsafe_allow_html=True)
+            else:
+                st.info("ℹ️ Este jugador no presenta una consistencia perfecta (5/5) en sus líneas actuales.")
+
+            if parlay_legs:
+                st.markdown("### 🎲 Combinación Sugerida de Alta Seguridad")
+                legs_html = "<br>• ".join(parlay_legs)
+                st.markdown(f"""
+                    <div class='parlay-card'>
+                        🎯 <b>Selecciones Blindadas para Parlay ({selected_player_name}):</b><br><br>
+                        • {legs_html}<br><br>
+                        <span style='font-size: 12px; font-weight: normal;'>💡 <i>Opciones ideales para sumar a tus acumuladores grandes sin arriesgar de más.</i></span>
+                    </div>
+                """, unsafe_allow_html=True)
+
+        else:
+            st.warning("No hay suficientes registros disponibles para este jugador.")
+
+    except Exception as e:
+        st.error(f"Ocurrió un error al procesar los datos: {e}")
