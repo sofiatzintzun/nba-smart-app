@@ -5,23 +5,14 @@ from nba_api.stats.endpoints import playergamelog, commonteamroster
 
 st.set_page_config(page_title="NBA L5 Tracker", layout="wide")
 
-# --- FUNCIONALIDAD DE ESTILO (Súper Simple) ---
+# --- FUNCIONALIDAD DE ESTILO ---
 def highlight_cells(val):
-    # Definimos el color verde
     color = 'background-color: #28a745; color: white; font-weight: bold'
-    
-    # Intentamos convertir a número por si acaso
     try:
         num = float(val)
-        # REGLA: Si es 1, 2, 3, 4, 5, 6, 7, 8, 9 (típico de robos/bloqueos) 
-        # o si es >= 10 (puntos, rebotes, etc.)
         if num >= 10:
             return color
-        # Esta regla cubre Robos y Bloqueos (>=1) sin necesidad de saber el nombre de la columna
-        if num >= 1 and num < 10:
-            # Aquí hay un truco: como queremos que solo Robos/Bloqueos se pinten con 1,
-            # pero no queremos que la Fecha (ej. 2024) se pinte, 
-            # el reset_index y el filtrado de columnas abajo ayudarán.
+        if 1 <= num < 10:
             return color
     except:
         pass
@@ -29,7 +20,6 @@ def highlight_cells(val):
 
 st.markdown("""
     <style>
-    /* Ajusta el tamaño de fuente y espacio en las tablas */
     table {
         font-size: 12px !important;
     }
@@ -42,7 +32,6 @@ st.markdown("""
 
 st.title("🏀 Estadísticas: Últimos 5 Partidos")
 
-# ... (Todo tu código de obtención de equipos y jugadores se mantiene igual) ...
 @st.cache_data
 def get_all_teams():
     return teams.get_teams()
@@ -82,17 +71,14 @@ try:
         df_display = df_raw[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
         
-        # 2. Aplicar estilo celda por celda (A PRUEBA DE TODO)
-        # Usamos .style.applymap() que es el método más directo
-        styled_df = df_display.style.applymap(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK', 'TC', '3P'])
+        # 2. Aplicar estilo celda por celda (Cambiado applymap por map)
+        styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK', 'TC', '3P'])
 
-        # 3. Renderizar con st.table (A veces st.dataframe da problemas de CSS en móvil)
-        # Probemos con st.table para asegurar que el HTML se renderice con colores
-        # Esto mostrará: Jugador | Equipo
+        # 3. Renderizar con st.table
         st.write(f"### {selected_player_name} | {selected_team_name}")
         st.table(styled_df)
 
-        # ... (Tus métricas de abajo se mantienen igual) ...
+        # 4. Métricas
         def count_doubles(row):
             stats = [row['PTS'], row['REB'], row['AST'], row['STL'], row['BLK']]
             return sum(1 for s in stats if s >= 10)
@@ -107,6 +93,8 @@ try:
         c3.metric("Avg AST", f"{df_raw['AST'].mean():.1f}")
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
+    else:
+        st.warning("No hay registros de partidos disponibles para este jugador en la temporada seleccionada.")
 
 except Exception as e:
     st.error(f"Error: {e}")
