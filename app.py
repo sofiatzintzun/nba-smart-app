@@ -74,7 +74,8 @@ def get_player_last_5(player_id):
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     
-    log = playergamelog.PlayerGameLog(player_id=player_id, season='2025-26', timeout=15)
+    # Temporada actual correcta: 2026-27
+    log = playergamelog.PlayerGameLog(player_id=player_id, season='2026-27', timeout=15)
     return log.get_data_frames()[0].head(5)
 
 try:
@@ -91,7 +92,7 @@ try:
         df_display = df_raw[list(cols_map.keys())].copy()
         df_display.rename(columns=cols_map, inplace=True)
         
-        # 2. Aplicar estilo celda por celda (Usando .map en lugar de .applymap)
+        # 2. Aplicar estilo celda por celda (Usando .map)
         styled_df = df_display.style.map(highlight_cells, subset=['PTS', 'REB', 'AST', 'STL', 'BLK', 'TC', '3P'])
 
         # 3. Renderizar con st.table
@@ -114,7 +115,7 @@ try:
         c4.metric("DD", f"{dd}/5")
         c5.metric("TD", f"{td}/5")
     else:
-        st.warning("No hay registros de partidos disponibles para este jugador en la temporada seleccionada.")
+        st.warning("No hay registros de partidos disponibles para este jugador en la temporada 2026-27.")
 
 except requests.exceptions.ReadTimeout:
     st.error("⏰ La solicitud a la API de la NBA ha tardado demasiado (Timeout). Por favor, cambia de jugador o recarga la página para reintentarlo.")
