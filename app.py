@@ -51,9 +51,6 @@ st.title("🏀 NBA L5 Parlay Master — Google Sheets & Estadísticas Reales")
 if 'my_ticket' not in st.session_state:
     st.session_state.my_ticket = []
 
-if 'selected_tab_idx' not in st.session_state:
-    st.session_state.selected_tab_idx = 0
-
 if 'target_team' not in st.session_state:
     st.session_state.target_team = "Pistons"
 
@@ -277,18 +274,14 @@ if st.session_state.my_ticket:
 else:
     st.sidebar.info("Tu papeleta está vacía.")
 
-# --- NAVEGACIÓN PRINCIPAL CON SELECCIÓN DINÁMICA ---
-tab_names = [
+# --- NAVEGACIÓN PRINCIPAL ---
+tabs = st.tabs([
     "📅 Calendario y Partidos de Hoy", 
     "🛡️ Escáner General", 
     "🎟️ Mi Papeleta", 
     "👤 Vista Individual (Google Sheets)"
-]
+])
 
-# Control para abrir la pestaña correcta de forma programática
-tabs = st.tabs(tab_names)
-
-# Asignación de contenedores por pestaña
 with tabs[0]:
     st.subheader("📅 Cartelera del Día — Tarjetas de Partidos y Picks Reales")
     st.markdown("Visualiza los enfrentamientos de hoy con estadísticas estructuradas y limpias.")
@@ -324,82 +317,101 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("🔥 Picks Blindados del Día (Escáner General)")
-    st.markdown("Escanea automáticamente los planteles de la jornada utilizando la información de Google Sheets y cruza las líneas de los casinos.")
+    st.markdown("Escanea **exclusivamente a los equipos con partido programado hoy**, cruzando la información de Google Sheets con las líneas de los casinos.")
 
-    lista_equipos_sheets = [
-        "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
-        "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
-        "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
-        "Magic", "Knicks", "Bulls", "Pacers", "Nets", "Hornets",
-        "Wizards", "Raptors"
-    ]
+    if not todays_matchups:
+        st.warning("No hay partidos programados para el día de hoy, por lo que el escáner no muestra jugadores activos.")
+    else:
+        # Extraer los nombres de los equipos que juegan hoy según la cartelera de ESPN
+        teams_playing_today = set()
+        for m in todays_matchups:
+            teams_playing_today.add(m['team1']['name'].lower())
+            teams_playing_today.add(m['team2']['name'].lower())
+            # Añadir también abreviaturas o fragmentos clave por si acaso
+            teams_playing_today.add(m['team1']['abbreviation'].lower())
+            teams_playing_today.add(m['team2']['abbreviation'].lower())
 
-    safe_picks_found = 0
-    
-    for team_name in lista_equipos_sheets:
-        df_raw, err = load_team_raw_data(team_name)
-        if err or df_raw.empty:
-            continue
+        lista_equipos_sheets = [
+            "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
+            "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
+            "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
+            "Magic", "Knicks", "Bulls", "Pacers", "Nets", "Hornets",
+            "Wizards", "Raptors"
+        ]
+
+        safe_picks_found = 0
+        
+        for team_name in lista_equipos_sheets:
+            # Filtro estricto: verificar si el equipo de la hoja juega hoy
+            # (Comparamos si el nombre de la hoja o parte de él coincide con los equipos de la cartelera de hoy)
+            t_lower = team_name.lower()
+            is_playing = any(t_lower in tp or tp in t_lower for tp in teams_playing_today)
             
-        players_dict = parse_player_blocks(df_raw)
-        for player_name, df_p in players_dict.items():
-            if df_p.shape[1] < 6:
+            if not is_playing:
+                continue  # Salta los equipos que NO juegan hoy
+
+            df_raw, err = load_team_raw_data(team_name)
+            if err or df_raw.empty:
                 continue
                 
-            df_stats = df_p.iloc[:, :6].copy()
-            df_stats.columns = ['Puntos', 'Triples', 'Rebotes', 'Asistencias', 'Robos', 'Bloqueos']
-            
-            for col in df_stats.columns:
-                df_stats[col] = pd.to_numeric(df_stats[col], errors='coerce').fillna(0).astype(int)
+            players_dict = parse_player_blocks(df_raw)
+            for player_name, df_p in players_dict.items():
+                if df_p.shape[1] < 6:
+                    continue
+                    
+                df_stats = df_p.iloc[:, :6].copy()
+                df_stats.columns = ['Puntos', 'Triples', 'Rebotes', 'Asistencias', 'Robos', 'Bloqueos']
                 
-            avg_pts = df_stats['Puntos'].mean()
-            avg_reb = df_stats['Rebotes'].mean()
-            avg_ast = df_stats['Asistencias'].mean()
-            
-            p_key_lower = player_name.lower().strip()
-            market_info = all_market_data.get(p_key_lower, {})
-            
-            picks_to_evaluate = []
-            if avg_pts >= 15:
-                line_pts = market_info.get('PTS', round(avg_pts - 3, 1))
-                picks_to_evaluate.append(('Puntos', avg_pts, line_pts))
-            if avg_reb >= 6:
-                line_reb = market_info.get('REB', round(avg_reb - 1, 1))
-                picks_to_evaluate.append(('Rebotes', avg_reb, line_reb))
-            if avg_ast >= 5:
-                line_ast = market_info.get('AST', round(avg_ast - 1, 1))
-                picks_to_evaluate.append(('Asistencias', avg_ast, line_ast))
+                for col in df_stats.columns:
+                    df_stats[col] = pd.to_numeric(df_stats[col], errors='coerce').fillna(0).astype(int)
+                    
+                avg_pts = df_stats['Puntos'].mean()
+                avg_reb = df_stats['Rebotes'].mean()
+                avg_ast = df_stats['Asistencias'].mean()
                 
-            for stat_type, avg_val, line_val in picks_to_evaluate:
-                safe_picks_found += 1
-                pick_text = f"Más de {line_val} {stat_type} (Avg L5: {avg_val:.1f})"
+                p_key_lower = player_name.lower().strip()
+                market_info = all_market_data.get(p_key_lower, {})
                 
-                col_card, col_btn_view, col_btn_add = st.columns([3, 1, 1])
-                with col_card:
-                    st.markdown(f"""
-                        <div class='safe-pick-card'>
-                            <b>👤 {player_name}</b> ({team_name}) — 🎯 <b>{pick_text}</b><br>
-                            <small>Estadísticas L5 | Pts: {avg_pts:.1f} | Reb: {avg_reb:.1f} | Ast: {avg_ast:.1f}</small>
-                        </div>
-                    """, unsafe_allow_html=True)
-                with col_btn_view:
-                    # Botón para saltar directamente a la vista individual del jugador
-                    if st.button("👁️ Ver", key=f"view_{team_name}_{player_name}_{stat_type}"):
-                        st.session_state.target_team = team_name
-                        st.session_state.target_player = player_name
-                        st.rerun()
-                with col_btn_add:
-                    if st.button("➕ Agregar", key=f"add_{team_name}_{player_name}_{stat_type}"):
-                        ticket_item = {'Jugador': player_name, 'Equipo': team_name, 'Pick': pick_text}
-                        if ticket_item not in st.session_state.my_ticket:
-                            st.session_state.my_ticket.append(ticket_item)
-                            st.success("¡Agregado!")
+                picks_to_evaluate = []
+                if avg_pts >= 15:
+                    line_pts = market_info.get('PTS', round(avg_pts - 3, 1))
+                    picks_to_evaluate.append(('Puntos', avg_pts, line_pts))
+                if avg_reb >= 6:
+                    line_reb = market_info.get('REB', round(avg_reb - 1, 1))
+                    picks_to_evaluate.append(('Rebotes', avg_reb, line_reb))
+                if avg_ast >= 5:
+                    line_ast = market_info.get('AST', round(avg_ast - 1, 1))
+                    picks_to_evaluate.append(('Asistencias', avg_ast, line_ast))
+                    
+                for stat_type, avg_val, line_val in picks_to_evaluate:
+                    safe_picks_found += 1
+                    pick_text = f"Más de {line_val} {stat_type} (Avg L5: {avg_val:.1f})"
+                    
+                    col_card, col_btn_view, col_btn_add = st.columns([3, 1, 1])
+                    with col_card:
+                        st.markdown(f"""
+                            <div class='safe-pick-card'>
+                                <b>👤 {player_name}</b> ({team_name}) — 🎯 <b>{pick_text}</b><br>
+                                <small>Estadísticas L5 | Pts: {avg_pts:.1f} | Reb: {avg_reb:.1f} | Ast: {avg_ast:.1f}</small>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    with col_btn_view:
+                        if st.button("👁️ Ver", key=f"view_{team_name}_{player_name}_{stat_type}"):
+                            st.session_state.target_team = team_name
+                            st.session_state.target_player = player_name
                             st.rerun()
-                        else:
-                            st.warning("Ya está.")
+                    with col_btn_add:
+                        if st.button("➕ Agregar", key=f"add_{team_name}_{player_name}_{stat_type}"):
+                            ticket_item = {'Jugador': player_name, 'Equipo': team_name, 'Pick': pick_text}
+                            if ticket_item not in st.session_state.my_ticket:
+                                st.session_state.my_ticket.append(ticket_item)
+                                st.success("¡Agregado!")
+                                st.rerun()
+                            else:
+                                st.warning("Ya está.")
 
-    if safe_picks_found == 0:
-        st.info("ℹ️ No se encontraron picks blindados bajo los filtros actuales en las hojas configuradas.")
+        if safe_picks_found == 0:
+            st.info("ℹ️ Ningún jugador de los equipos que juegan hoy cumple con los filtros mínimos de rendimiento L5.")
 
 with tabs[2]:
     st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
@@ -446,9 +458,10 @@ with tabs[3]:
         "Wizards", "Raptors"
     ]
     
-    # Sincronizar selección del equipo con el estado global si viene desde el escáner
-    default_team_idx = lista_equipos_sheets.index(st.session_state.target_team) if st.session_state.target_team in lista_equipos_sheets else 0
-    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets), index=sorted(lista_equipos_sheets).index(st.session_state.target_team) if st.session_state.target_team in lista_equipos_sheets else 0)
+    sorted_teams = sorted(lista_equipos_sheets)
+    default_team_idx = sorted_teams.index(st.session_state.target_team) if st.session_state.target_team in sorted_teams else 0
+    
+    selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted_teams, index=default_team_idx)
     
     df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
@@ -464,7 +477,6 @@ with tabs[3]:
         else:
             lista_jugadores = sorted(list(players_dict.keys()))
             
-            # Sincronizar índice del jugador si viene redirigido desde el escáner
             default_player_idx = 0
             if st.session_state.target_player in lista_jugadores:
                 default_player_idx = lista_jugadores.index(st.session_state.target_player)
@@ -490,7 +502,6 @@ with tabs[3]:
             styled_df = df_display.style.map(highlight_cells, subset=df_display.columns.tolist())
             st.table(styled_df)
             
-            # --- MÉTRICAS Y SUGERENCIA / SUGERENCIAS DE APUESTA DEBAJO DE LA TABLA ---
             c1, c2, c3, c4 = st.columns(4)
             avg_pts = df_display['Puntos'].mean()
             avg_reb = df_display['Rebotes'].mean()
