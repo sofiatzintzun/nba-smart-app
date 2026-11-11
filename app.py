@@ -311,8 +311,80 @@ with tab1:
 
 with tab2:
     st.subheader("🔥 Picks Blindados del Día (Escáner General)")
-    st.markdown("Escanea los planteles de la jornada utilizando la información cargada en Google Sheets.")
-    st.info("💡 Asegúrate de seleccionar el equipo en la pestaña individual para validar los registros de los últimos 5 partidos.")
+    st.markdown("Escanea automáticamente los planteles de la jornada utilizando la información de Google Sheets y cruza las líneas de los casinos.")
+
+    # Lista de equipos para escanear en el escáner general
+    lista_equipos_sheets = [
+        "Pistons", "76ers", "Trail Blazers", "Lakers", "Celtics", "Warriors", "Spurs", "Suns", "Nuggets",
+        "Bucks", "Cavaliers", "Thunder", "Timberwolves", "Mavericks", "Grizzlies",
+        "Clippers", "Kings", "Rockets", "Pelicans", "Jazz", "Hawks", "Heat",
+        "Magic", "Knicks", "Bulls", "Pacers", "Nets", "Hornets",
+        "Wizards", "Raptors"
+    ]
+
+    safe_picks_found = 0
+    
+    for team_name in lista_equipos_sheets:
+        df_raw, err = load_team_raw_data(team_name)
+        if err or df_raw.empty:
+            continue
+            
+        players_dict = parse_player_blocks(df_raw)
+        for player_name, df_p in players_dict.items():
+            if df_p.shape[1] < 6:
+                continue
+                
+            df_stats = df_p.iloc[:, :6].copy()
+            df_stats.columns = ['Puntos', 'Triples', 'Rebotes', 'Asistencias', 'Robos', 'Bloqueos']
+            
+            for col in df_stats.columns:
+                df_stats[col] = pd.to_numeric(df_stats[col], errors='coerce').fillna(0).astype(int)
+                
+            # Criterio L5: si cumple con consistencia alta (ej. promedio de puntos >= 15 o rebotes/asistencias destacados)
+            avg_pts = df_stats['Puntos'].mean()
+            avg_reb = df_stats['Rebotes'].mean()
+            avg_ast = df_stats['Asistencias'].mean()
+            avg_3p = df_stats['Triples'].mean()
+            
+            # Buscar línea del casino correspondiente
+            p_key_lower = player_name.lower().strip()
+            market_info = all_market_data.get(p_key_lower, {})
+            
+            picks_to_evaluate = []
+            if avg_pts >= 15:
+                line_pts = market_info.get('PTS', round(avg_pts - 3, 1))
+                picks_to_evaluate.append(('Puntos', avg_pts, line_pts))
+            if avg_reb >= 6:
+                line_reb = market_info.get('REB', round(avg_reb - 1, 1))
+                picks_to_evaluate.append(('Rebotes', avg_reb, line_reb))
+            if avg_ast >= 5:
+                line_ast = market_info.get('AST', round(avg_ast - 1, 1))
+                picks_to_evaluate.append(('Asistencias', avg_ast, line_ast))
+                
+            for stat_type, avg_val, line_val in picks_to_evaluate:
+                safe_picks_found += 1
+                pick_text = f"Más de {line_val} {stat_type} (Avg L5: {avg_val:.1f})"
+                
+                col_card, col_btn = st.columns([4, 1])
+                with col_card:
+                    st.markdown(f"""
+                        <div class='safe-pick-card'>
+                            <b>👤 {player_name}</b> ({team_name}) — 🎯 <b>{pick_text}</b><br>
+                            <small>Estadísticas L5 | Pts: {avg_pts:.1f} | Reb: {avg_reb:.1f} | Ast: {avg_ast:.1f}</small>
+                        </div>
+                    """, unsafe_allow_html=True)
+                with col_btn:
+                    if st.button("➕ Agregar", key=f"add_pick_{team_name}_{player_name}_{stat_type}"):
+                        ticket_item = {'Jugador': player_name, 'Equipo': team_name, 'Pick': pick_text}
+                        if ticket_item not in st.session_state.my_ticket:
+                            st.session_state.my_ticket.append(ticket_item)
+                            st.success("¡Agregado!")
+                            st.rerun()
+                        else:
+                            st.warning("Ya está en la papeleta.")
+
+    if safe_picks_found == 0:
+        st.info("ℹ️ No se encontraron picks blindados bajo los filtros actuales en las hojas configuradas.")
 
 with tab3:
     st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
@@ -361,7 +433,6 @@ with tab4:
     
     selected_sheet_name = st.sidebar.selectbox("🏀 Seleccionar Equipo (Hoja)", sorted(lista_equipos_sheets))
     
-    # Cargamos exclusivamente los datos de la hoja seleccionada
     df_raw, error_msg = load_team_raw_data(selected_sheet_name)
     
     if error_msg:
@@ -370,7 +441,6 @@ with tab4:
     elif df_raw.empty:
         st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o aún no tiene datos cargados.")
     else:
-        # Parseamos los bloques aislados exclusivamente para este equipo
         players_dict = parse_player_blocks(df_raw)
         
         if not players_dict:
