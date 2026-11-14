@@ -180,25 +180,25 @@ def get_todays_matchups():
 
 todays_matchups = get_todays_matchups()
 
-# --- FUNCIÓN ESTRICTA DE RACHA Y RIVAL (CON SOPORTE DE OVER / UNDER Y LÍNEAS REALES) ---
+# --- FUNCIÓN ESTRICTA DE RACHA Y RIVAL (CON REGLA MÍNIMA DE 4.5 PARA PUNTOS) ---
 def analizar_racha_contra_rival(df_stats, col_name, linea_prop, nombre_rival, label_stat):
     """
-    Evalúa la racha estricta (4/5 o 5/5) para Más de (Over) o Menos de (Under), 
-    asegurando que las líneas y proyecciones tengan sentido real (ej. 0.5, 1.5).
+    Evalúa la racha estricta (4/5 o 5/5) para Over/Under. 
+    Aplica regla especial: en Puntos, la línea nunca puede ser menor a 4.5.
     """
+    # REGLA OBLIGATORIA: Los puntos no pueden ser menores a 4.5
+    if col_name == 'Puntos' and linea_prop < 4.5:
+        linea_prop = 4.5
+
     serie = df_stats[col_name]
     total_partidos = len(serie)
     
-    # Evaluar OVER (Más de)
     cumplidos_over = sum(1 for x in serie if x >= linea_prop)
-    
-    # Evaluar UNDER (Menos de) -> si la línea es ej. 1.5 y hace 0 o 1, cumple el under
     cumplidos_under = sum(1 for x in serie if x <= linea_prop)
     
     factor_rival = 0.95 if "spurs" in nombre_rival.lower() or "pacers" in nombre_rival.lower() else 1.05
     proyeccion_estimada = round(serie.mean() * factor_rival, 1)
     
-    # Determinar si cumple el filtro estricto de 4/5 o 5/5 en Over o Under
     if cumplidos_over >= 4:
         tipo_apuesta = "Más de"
         cumplidos = cumplidos_over
@@ -261,7 +261,7 @@ def get_scheduled_market_lines(api_key, time_slot):
                                 point = outcome.get('point')
                                 if point is not None:
                                     if m_key == 'player_points' and 'PTS' not in master_dict[p_name_clean]:
-                                        master_dict[p_name_clean]['PTS'] = point
+                                        master_dict[p_name_clean]['PTS'] = max(4.5, point)
                                     elif m_key == 'player_rebounds' and 'REB' not in master_dict[p_name_clean]:
                                         master_dict[p_name_clean]['REB'] = point
                                     elif m_key == 'player_assists' and 'AST' not in master_dict[p_name_clean]:
@@ -334,7 +334,7 @@ def buscar_hoja_equipo(nombre_espn):
 
 with tabs[0]:
     st.subheader("📅 Cartelera del Día — Picks Estrictos (4/5 o 5/5)")
-    st.markdown("Mostrando únicamente selecciones con rachas sólidas (Over/Under) frente al rival de hoy.")
+    st.markdown("Mostrando únicamente selecciones con rachas sólidas y líneas reglamentarias (Puntos mínimo 4.5).")
 
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy.")
@@ -396,11 +396,10 @@ with tabs[0]:
                                     df_st[col] = pd.to_numeric(df_st[col], errors='coerce').fillna(0).astype(int)
                                 
                                 m_info = all_market_data.get(p_name.lower().strip(), {})
-                                lp = m_info.get('PTS', round(df_st['Puntos'].mean() - 3, 1))
+                                lp = max(4.5, m_info.get('PTS', round(df_st['Puntos'].mean() - 3, 1)))
                                 lr = m_info.get('REB', round(df_st['Rebotes'].mean() - 1, 1))
                                 la = m_info.get('AST', round(df_st['Asistencias'].mean() - 1, 1))
                                 l3 = m_info.get('3P', round(df_st['Triples'].mean() - 0.5, 1))
-                                # Asegurar que líneas bajas (como robos/bloqueos) tengan decimal .5 limpio o entero
                                 ls = m_info.get('STL', round(df_st['Robos'].mean() - 0.5, 1))
                                 lb = m_info.get('BLK', round(df_st['Bloqueos'].mean() - 0.5, 1))
                                 if ls <= 0: ls = 0.5
@@ -467,7 +466,7 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("🛡️ Escáner Estricto (Filtro 4/5 o 5/5 - Over/Under)")
-    st.markdown("Escáner riguroso que evalúa tanto líneas altas como bajas (Menos de / Más de) con base en la racha L5.")
+    st.markdown("Escáner riguroso con reglas reglamentarias de casino (Puntos mínimo 4.5).")
 
     if not todays_matchups:
         st.warning("No hay partidos programados para el día de hoy.")
@@ -518,7 +517,7 @@ with tabs[1]:
                     df_stats[col] = pd.to_numeric(df_stats[col], errors='coerce').fillna(0).astype(int)
                     
                 m_info = all_market_data.get(player_name.lower().strip(), {})
-                line_pts = m_info.get('PTS', round(df_stats['Puntos'].mean() - 3, 1))
+                line_pts = max(4.5, m_info.get('PTS', round(df_stats['Puntos'].mean() - 3, 1)))
                 line_reb = m_info.get('REB', round(df_stats['Rebotes'].mean() - 1, 1))
                 line_ast = m_info.get('AST', round(df_stats['Asistencias'].mean() - 1, 1))
                 line_3p  = m_info.get('3P', round(df_stats['Triples'].mean() - 0.5, 1))
@@ -653,7 +652,7 @@ with tabs[3]:
             p_key_lower = selected_player.lower().strip()
             market_info = all_market_data.get(p_key_lower, {})
             
-            line_p = market_info.get('PTS', round(avg_pts - 3, 1))
+            line_p = max(4.5, market_info.get('PTS', round(avg_pts - 3, 1)))
             line_r = market_info.get('REB', round(avg_reb - 1, 1))
             line_a = market_info.get('AST', round(avg_ast - 1, 1))
             line_3 = market_info.get('3P', round(avg_3p - 0.5, 1))
