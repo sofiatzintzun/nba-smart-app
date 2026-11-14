@@ -85,40 +85,45 @@ def load_team_raw_data(sheet_name):
             return pd.DataFrame(), f"GSheets Error: {str(e)} | CSV Alt Error: {str(alt_e)}"
     return pd.DataFrame(), f"La hoja '{sheet_name}' devolvió datos vacíos o no existe en el documento."
 
-# --- ANALIZADOR DE BLOQUES AISLADO (CACHEADO) ---
+# --- ANALIZADOR DE BLOQUES CORREGIDO (DETECTA NOMBRES CORRECTAMENTE) ---
 @st.cache_data(show_spinner=False)
 def parse_player_blocks_cached(df_raw):
     players_dict = {}
     current_player = None
     current_rows = []
-    header_found = False
     
     df_clean = df_raw.dropna(how='all')
     
     for idx, row in df_clean.iterrows():
         val_col0 = str(row.iloc[0]).strip()
         
-        if not val_col0 or val_col0.lower() in ['nan', 'none']:
+        # Ignorar celdas vacías o nulas
+        if not val_col0 or val_col0.lower() in ['nan', 'none', '']:
             continue
             
-        if val_col0.lower() in ['puntos', 'points', 'triples', 'rebotes']:
-            header_found = True
+        # Detectar si la celda es una fila de cabecera de estadísticas (ej. Puntos, Rebotes)
+        if val_col0.lower() in ['puntos', 'points', 'triples', 'rebotes', 'asistencias', 'robos', 'bloqueos']:
             continue
             
-        first_val = val_col0.replace('.', '', 1)
-        if current_player and header_found and first_val.isdigit():
+        # Verificar si la fila es un registro numérico (estadísticas de un partido del jugador actual)
+        first_val = val_col0.replace('.', '', 1).replace('-', '', 1)
+        if current_player and first_val.isdigit():
             current_rows.append(row.values)
             continue
             
-        if not first_val.isdigit() and val_col0.lower() not in ['puntos', 'points', 'triples', 'rebotes', 'asistencias', 'robos', 'bloqueos']:
+        # Si no es un número y no es cabecera, entonces ES UN NUEVO NOMBRE DE JUGADOR
+        if not first_val.isdigit():
+            # Guardar el jugador anterior si ya tenía filas acumuladas
             if current_player and current_rows:
                 df_p = pd.DataFrame(current_rows)
                 if not df_p.empty:
                     players_dict[current_player] = df_p
+            
+            # Iniciar nuevo jugador
             current_player = val_col0
             current_rows = []
-            header_found = False
             
+    # Guardar el último jugador del archivo
     if current_player and current_rows:
         df_p = pd.DataFrame(current_rows)
         if not df_p.empty:
