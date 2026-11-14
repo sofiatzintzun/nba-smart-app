@@ -62,8 +62,8 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# --- CARGA AISLADA Y DIRECTA POR HOJA ---
-@st.cache_data(ttl=60)
+# --- CARGA OPTIMIZADA CON CACHÉ DE LARGA DURACIÓN (ACELERA LA CARGA) ---
+@st.cache_data(ttl=3600, show_spinner=False)
 def load_team_raw_data(sheet_name):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
@@ -81,8 +81,9 @@ def load_team_raw_data(sheet_name):
             return pd.DataFrame(), f"GSheets Error: {str(e)} | CSV Alt Error: {str(alt_e)}"
     return pd.DataFrame(), f"La hoja '{sheet_name}' devolvió datos vacíos o no existe en el documento."
 
-# --- ANALIZADOR DE BLOQUES AISLADO ---
-def parse_player_blocks(df_raw):
+# --- ANALIZADOR DE BLOQUES AISLADO (CACHEADO PARA MÁXIMA VELOCIDAD) ---
+@st.cache_data(show_spinner=False)
+def parse_player_blocks_cached(df_raw):
     players_dict = {}
     current_player = None
     current_rows = []
@@ -182,11 +183,6 @@ todays_matchups = get_todays_matchups()
 
 # --- FUNCIÓN ESTRICTA DE RACHA Y RIVAL (CON REGLA MÍNIMA DE 4.5 PARA PUNTOS) ---
 def analizar_racha_contra_rival(df_stats, col_name, linea_prop, nombre_rival, label_stat):
-    """
-    Evalúa la racha estricta (4/5 o 5/5) para Over/Under. 
-    Aplica regla especial: en Puntos, la línea nunca puede ser menor a 4.5.
-    """
-    # REGLA OBLIGATORIA: Los puntos no pueden ser menores a 4.5
     if col_name == 'Puntos' and linea_prop < 4.5:
         linea_prop = 4.5
 
@@ -384,7 +380,7 @@ with tabs[0]:
                         df_raw, err = load_team_raw_data(sheet_eq)
                         if err or df_raw.empty:
                             continue
-                        p_dict = parse_player_blocks(df_raw)
+                        p_dict = parse_player_blocks_cached(df_raw)
                         if p_dict:
                             rival_actual = mapa_enfrentamientos.get(sheet_eq, "el equipo rival")
                             for p_name, df_p in p_dict.items():
@@ -466,7 +462,7 @@ with tabs[0]:
 
 with tabs[1]:
     st.subheader("🛡️ Escáner Estricto (Filtro 4/5 o 5/5 - Over/Under)")
-    st.markdown("Escáner riguroso con reglas reglamentarias de casino (Puntos mínimo 4.5).")
+    st.markdown("Escáner optimizado con caché y reglas reglamentarias de casino.")
 
     if not todays_matchups:
         st.warning("No hay partidos programados para el día de hoy.")
@@ -504,7 +500,7 @@ with tabs[1]:
                 continue
                 
             rival_nombre = matchup_map_by_team.get(team_name, "el equipo rival")
-            players_dict = parse_player_blocks(df_raw)
+            players_dict = parse_player_blocks_cached(df_raw)
             
             for player_name, df_p in players_dict.items():
                 if df_p.shape[1] < 6:
@@ -597,7 +593,7 @@ with tabs[3]:
     elif df_raw.empty:
         st.warning(f"⚠️ La hoja '{selected_sheet_name}' está vacía o aún no tiene datos cargados.")
     else:
-        players_dict = parse_player_blocks(df_raw)
+        players_dict = parse_player_blocks_cached(df_raw)
         
         if not players_dict:
             st.warning(f"No se pudieron detectar bloques de jugadores en la hoja '{selected_sheet_name}'.")
