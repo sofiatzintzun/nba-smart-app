@@ -28,9 +28,13 @@ st.markdown("""
     <style>
     table { font-size: 12px !important; }
     th, td { padding: 4px !important; text-align: center !important; }
-    .safe-pick-card {
+    .safe-pick-card-55 {
         background: linear-gradient(135deg, #0f2027 0%, #203a43 100%, #2c5364 100%);
         color: #ffffff; padding: 12px; border-radius: 8px; border-left: 5px solid #00ff87; margin-bottom: 8px; font-size: 14px;
+    }
+    .safe-pick-card-45 {
+        background: linear-gradient(135deg, #1f4068 0%, #162447 100%);
+        color: #ffffff; padding: 12px; border-radius: 8px; border-left: 5px solid #ffa500; margin-bottom: 8px; font-size: 14px;
     }
     .match-card {
         background-color: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: #ffffff !important;
@@ -62,7 +66,7 @@ except Exception:
     API_KEY = "f824e37c9ae1f7dc0d7407059c364573"
     ADMIN_PASS = "0911"
 
-# --- CARGA OPTIMIZADA CON CACHÉ DE LARGA DURACIÓN (ACELERA LA CARGA) ---
+# --- CARGA OPTIMIZADA CON CACHÉ DE LARGA DURACIÓN ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_team_raw_data(sheet_name):
     try:
@@ -81,7 +85,7 @@ def load_team_raw_data(sheet_name):
             return pd.DataFrame(), f"GSheets Error: {str(e)} | CSV Alt Error: {str(alt_e)}"
     return pd.DataFrame(), f"La hoja '{sheet_name}' devolvió datos vacíos o no existe en el documento."
 
-# --- ANALIZADOR DE BLOQUES AISLADO (CACHEADO PARA MÁXIMA VELOCIDAD) ---
+# --- ANALIZADOR DE BLOQUES AISLADO (CACHEADO) ---
 @st.cache_data(show_spinner=False)
 def parse_player_blocks_cached(df_raw):
     players_dict = {}
@@ -181,7 +185,7 @@ def get_todays_matchups():
 
 todays_matchups = get_todays_matchups()
 
-# --- FUNCIÓN ESTRICTA DE RACHA Y RIVAL (CON REGLA MÍNIMA DE 4.5 PARA PUNTOS) ---
+# --- FUNCIÓN ESTRICTA QUE DEVUELVE EL NIVEL DE RACHA (4 o 5) ---
 def analizar_racha_contra_rival(df_stats, col_name, linea_prop, nombre_rival, label_stat):
     if col_name == 'Puntos' and linea_prop < 4.5:
         linea_prop = 4.5
@@ -202,13 +206,13 @@ def analizar_racha_contra_rival(df_stats, col_name, linea_prop, nombre_rival, la
         tipo_apuesta = "Menos de"
         cumplidos = cumplidos_under
     else:
-        return False, "", 0, ""
+        return False, 0, "", 0, ""
     
     mensaje = (
         f"🔥 **{label_stat} ({cumplidos}/{total_partidos} partidos):** {tipo_apuesta} {linea_prop}. "
-        f"Proyección contra **{nombre_rival}**: **{proyeccion_estimada}** (Alta probabilidad 🟢)."
+        f"Proyección contra **{nombre_rival}**: **{proyeccion_estimada}**."
     )
-    return True, tipo_apuesta, proyeccion_estimada, mensaje
+    return True, cumplidos, tipo_apuesta, proyeccion_estimada, mensaje
 
 # --- MÓDULO OPTIMIZADO DE CUOTAS DE CASINOS ---
 st.sidebar.markdown("---")
@@ -308,7 +312,7 @@ else:
 # --- NAVEGACIÓN PRINCIPAL ---
 tabs = st.tabs([
     "📅 Calendario y Partidos de Hoy", 
-    "🛡️ Escáner Estricto (4/5 o 5/5)", 
+    "🛡️ Escáner Estricto (Separado 5/5 y 4/5)", 
     "🎟️ Mi Papeleta", 
     "👤 Vista Individual (Google Sheets)"
 ])
@@ -329,8 +333,8 @@ def buscar_hoja_equipo(nombre_espn):
     return None
 
 with tabs[0]:
-    st.subheader("📅 Cartelera del Día — Picks Estrictos (4/5 o 5/5)")
-    st.markdown("Mostrando únicamente selecciones con rachas sólidas y líneas reglamentarias (Puntos mínimo 4.5).")
+    st.subheader("📅 Cartelera del Día — Picks Estrictos (Separados por Racha)")
+    st.markdown("Mostrando selecciones del día organizadas por nivel de cumplimiento.")
 
     if not todays_matchups:
         st.warning("No se encontraron partidos oficiales programados para el día de hoy.")
@@ -361,7 +365,7 @@ with tabs[0]:
                 </div>
             """, unsafe_allow_html=True)
 
-            with st.expander(f"🔥 Ver Picks Estrictos: {t1['name']} vs {t2['name']}", expanded=False):
+            with st.expander(f"🔥 Ver Picks del Partido: {t1['name']} vs {t2['name']}", expanded=False):
                 eq_hoja_1 = buscar_hoja_equipo(t1['name'])
                 eq_hoja_2 = buscar_hoja_equipo(t2['name'])
                 
@@ -401,68 +405,39 @@ with tabs[0]:
                                 if ls <= 0: ls = 0.5
                                 if lb <= 0: lb = 0.5
                                 
-                                ok_p, tipo_p, _, msg_p = analizar_racha_contra_rival(df_st, 'Puntos', lp, rival_actual, "Puntos")
-                                ok_r, tipo_r, _, msg_r = analizar_racha_contra_rival(df_st, 'Rebotes', lr, rival_actual, "Rebotes")
-                                ok_a, tipo_a, _, msg_a = analizar_racha_contra_rival(df_st, 'Asistencias', la, rival_actual, "Asistencias")
-                                ok_3, tipo_3, _, msg_3 = analizar_racha_contra_rival(df_st, 'Triples', l3, rival_actual, "Triples")
-                                ok_s, tipo_s, _, msg_s = analizar_racha_contra_rival(df_st, 'Robos', ls, rival_actual, "Robos")
-                                ok_b, tipo_b, _, msg_b = analizar_racha_contra_rival(df_st, 'Bloqueos', lb, rival_actual, "Bloqueos")
+                                res_p = analizar_racha_contra_rival(df_st, 'Puntos', lp, rival_actual, "Puntos")
+                                res_r = analizar_racha_contra_rival(df_st, 'Rebotes', lr, rival_actual, "Rebotes")
+                                res_a = analizar_racha_contra_rival(df_st, 'Asistencias', la, rival_actual, "Asistencias")
+                                res_3 = analizar_racha_contra_rival(df_st, 'Triples', l3, rival_actual, "Triples")
+                                res_s = analizar_racha_contra_rival(df_st, 'Robos', ls, rival_actual, "Robos")
+                                res_b = analizar_racha_contra_rival(df_st, 'Bloqueos', lb, rival_actual, "Bloqueos")
                                 
-                                if ok_p or ok_r or ok_a or ok_3 or ok_s or ok_b:
+                                validos = [r for r in [res_p, res_r, res_a, res_3, res_s, res_b] if r[0]]
+                                if validos:
                                     encontro_picks = True
                                     st.markdown(f"**👤 {p_name}** ({sheet_eq} vs {rival_actual})")
                                     
                                     c_b1, c_b2, c_b3, c_b4, c_b5, c_b6 = st.columns(6)
-                                    with c_b1:
-                                        if ok_p and st.button(f"➕ {tipo_p} {lp} PTS", key=f"s_pts_{m_idx}_{sheet_eq}_{p_name}"):
-                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo_p} {lp} Puntos vs {rival_actual}"}
-                                            if item not in st.session_state.my_ticket:
-                                                st.session_state.my_ticket.append(item)
-                                                st.success("¡Agregado!")
-                                                st.rerun()
-                                    with c_b2:
-                                        if ok_r and st.button(f"➕ {tipo_r} {lr} REB", key=f"s_reb_{m_idx}_{sheet_eq}_{p_name}"):
-                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo_r} {lr} Rebotes vs {rival_actual}"}
-                                            if item not in st.session_state.my_ticket:
-                                                st.session_state.my_ticket.append(item)
-                                                st.success("¡Agregado!")
-                                                st.rerun()
-                                    with c_b3:
-                                        if ok_a and st.button(f"➕ {tipo_a} {la} AST", key=f"s_ast_{m_idx}_{sheet_eq}_{p_name}"):
-                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo_a} {la} Asistencias vs {rival_actual}"}
-                                            if item not in st.session_state.my_ticket:
-                                                st.session_state.my_ticket.append(item)
-                                                st.success("¡Agregado!")
-                                                st.rerun()
-                                    with c_b4:
-                                        if ok_3 and st.button(f"➕ {tipo_3} {l3} 3P", key=f"s_3p_{m_idx}_{sheet_eq}_{p_name}"):
-                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo_3} {l3} Triples vs {rival_actual}"}
-                                            if item not in st.session_state.my_ticket:
-                                                st.session_state.my_ticket.append(item)
-                                                st.success("¡Agregado!")
-                                                st.rerun()
-                                    with c_b5:
-                                        if ok_s and st.button(f"➕ {tipo_s} {ls} STL", key=f"s_stl_{m_idx}_{sheet_eq}_{p_name}"):
-                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo_s} {ls} Robos vs {rival_actual}"}
-                                            if item not in st.session_state.my_ticket:
-                                                st.session_state.my_ticket.append(item)
-                                                st.success("¡Agregado!")
-                                                st.rerun()
-                                    with c_b6:
-                                        if ok_b and st.button(f"➕ {tipo_b} {lb} BLK", key=f"s_blk_{m_idx}_{sheet_eq}_{p_name}"):
-                                            item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo_b} {lb} Bloqueos vs {rival_actual}"}
-                                            if item not in st.session_state.my_ticket:
-                                                st.session_state.my_ticket.append(item)
-                                                st.success("¡Agregado!")
-                                                st.rerun()
+                                    for idx_col, (ok, racha, tipo, _, _) in enumerate([res_p, res_r, res_a, res_3, res_s, res_b]):
+                                        if ok:
+                                            stat_nombre = ["PTS", "REB", "AST", "3P", "STL", "BLK"][idx_col]
+                                            linea_val = [lp, lr, la, l3, ls, lb][idx_col]
+                                            with [c_b1, c_b2, c_b3, c_b4, c_b5, c_b6][idx_col]:
+                                                badge = "🟢 5/5" if racha == 5 else "🟡 4/5"
+                                                if st.button(f"{badge}\n{tipo} {linea_val} {stat_nombre}", key=f"s_{stat_nombre}_{m_idx}_{sheet_eq}_{p_name}"):
+                                                    item = {'Jugador': p_name, 'Equipo': sheet_eq, 'Pick': f"{tipo} {linea_val} {stat_nombre} vs {rival_actual}"}
+                                                    if item not in st.session_state.my_ticket:
+                                                        st.session_state.my_ticket.append(item)
+                                                        st.success("¡Agregado!")
+                                                        st.rerun()
                                     st.divider()
                                     
                     if not encontro_picks:
                         st.info("No hay jugadores que cumplan estrictamente con racha de 4/5 o 5/5 para este partido.")
 
 with tabs[1]:
-    st.subheader("🛡️ Escáner Estricto (Filtro 4/5 o 5/5 - Over/Under)")
-    st.markdown("Escáner optimizado con caché y reglas reglamentarias de casino.")
+    st.subheader("🛡️ Escáner Estricto — Separado por Racha (5/5 vs 4/5)")
+    st.markdown("Clasificación automática en dos secciones para priorizar los picks con mayor solidez estadística.")
 
     if not todays_matchups:
         st.warning("No hay partidos programados para el día de hoy.")
@@ -486,7 +461,8 @@ with tabs[1]:
                 matchup_map_by_team[hoja_t1] = t2_name
                 matchup_map_by_team[hoja_t2] = t1_name
 
-        safe_picks_found = 0
+        picks_55 = []
+        picks_45 = []
         
         for team_name in lista_equipos_sheets:
             t_lower = team_name.lower()
@@ -522,27 +498,50 @@ with tabs[1]:
                 if line_stl <= 0: line_stl = 0.5
                 if line_blk <= 0: line_blk = 0.5
                 
-                ok_p, _, _, msg_p = analizar_racha_contra_rival(df_stats, 'Puntos', line_pts, rival_nombre, "Puntos")
-                ok_r, _, _, msg_r = analizar_racha_contra_rival(df_stats, 'Rebotes', line_reb, rival_nombre, "Rebotes")
-                ok_a, _, _, msg_a = analizar_racha_contra_rival(df_stats, 'Asistencias', line_ast, rival_nombre, "Asistencias")
-                ok_3, _, _, msg_3 = analizar_racha_contra_rival(df_stats, 'Triples', line_3p, rival_nombre, "Triples")
-                ok_s, _, _, msg_s = analizar_racha_contra_rival(df_stats, 'Robos', line_stl, rival_nombre, "Robos")
-                ok_b, _, _, msg_b = analizar_racha_contra_rival(df_stats, 'Bloqueos', line_blk, rival_nombre, "Bloqueos")
+                resultados = [
+                    analizar_racha_contra_rival(df_stats, 'Puntos', line_pts, rival_nombre, "Puntos"),
+                    analizar_racha_contra_rival(df_stats, 'Rebotes', line_reb, rival_nombre, "Rebotes"),
+                    analizar_racha_contra_rival(df_stats, 'Asistencias', line_ast, rival_nombre, "Asistencias"),
+                    analizar_racha_contra_rival(df_stats, 'Triples', line_3p, rival_nombre, "Triples"),
+                    analizar_racha_contra_rival(df_stats, 'Robos', line_stl, rival_nombre, "Robos"),
+                    analizar_racha_contra_rival(df_stats, 'Bloqueos', line_blk, rival_nombre, "Bloqueos")
+                ]
                 
-                mensajes_validos = [m for ok, m in [(ok_p, msg_p), (ok_r, msg_r), (ok_a, msg_a), (ok_3, msg_3), (ok_s, msg_s), (ok_b, msg_b)] if ok]
-                
-                if mensajes_validos:
-                    safe_picks_found += 1
-                    html_msg = "<br>• ".join(mensajes_validos)
-                    st.markdown(f"""
-                        <div class='safe-pick-card'>
-                            <b>👤 {player_name}</b> ({team_name}) vs <i>{rival_nombre}</i><br>
-                            <small>• {html_msg}</small>
-                        </div>
-                    """, unsafe_allow_html=True)
+                for ok, racha, _, _, msg in resultados:
+                    if ok:
+                        item_info = {'jugador': player_name, 'equipo': team_name, 'rival': rival_nombre, 'mensaje': msg}
+                        if racha == 5:
+                            picks_55.append(item_info)
+                        elif racha == 4:
+                            picks_45.append(item_info)
 
-        if safe_picks_found == 0:
-            st.info("ℹ️ No hay jugadores con rachas estrictas de 4/5 o 5/5 para los partidos de hoy.")
+        # Renderizar Sección 5/5
+        st.markdown("### 🌟 Sección A: Rachas Perfectas (5 de 5 partidos)")
+        if picks_55:
+            for p in picks_55:
+                st.markdown(f"""
+                    <div class='safe-pick-card-55'>
+                        <b>👤 {p['jugador']}</b> ({p['equipo']}) vs <i>{p['rival']}</i><br>
+                        <small>• {p['mensaje']}</small>
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No hay picks con racha perfecta de 5/5 para hoy.")
+
+        st.markdown("---")
+
+        # Renderizar Sección 4/5
+        st.markdown("### 📊 Sección B: Rachas Sólidas (4 de 5 partidos)")
+        if picks_45:
+            for p in picks_45:
+                st.markdown(f"""
+                    <div class='safe-pick-card-45'>
+                        <b>👤 {p['jugador']}</b> ({p['equipo']}) vs <i>{p['rival']}</i><br>
+                        <small>• {p['mensaje']}</small>
+                    </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No hay picks con racha de 4/5 para hoy.")
 
 with tabs[2]:
     st.subheader("🎟️ Seguimiento de Mi Papeleta (Parlay / SGP)")
@@ -643,7 +642,7 @@ with tabs[3]:
             c4.metric("Avg Triples", f"{avg_3p:.1f}")
 
             st.markdown("---")
-            st.subheader("💡 Sugerencias de Apuesta con Filtro Estricto (Over/Under)")
+            st.subheader("💡 Sugerencias de Apuesta con Filtro Estricto")
             
             p_key_lower = selected_player.lower().strip()
             market_info = all_market_data.get(p_key_lower, {})
@@ -659,14 +658,14 @@ with tabs[3]:
             
             rival_opcion = st.selectbox("Selecciona el equipo rival para la proyección:", [t for t in lista_equipos_sheets if t != selected_sheet_name])
             
-            ok_p, tipo_p, _, msg_p = analizar_racha_contra_rival(df_display, 'Puntos', line_p, rival_opcion, "Puntos")
-            ok_r, tipo_r, _, msg_r = analizar_racha_contra_rival(df_display, 'Rebotes', line_r, rival_opcion, "Rebotes")
-            ok_a, tipo_a, _, msg_a = analizar_racha_contra_rival(df_display, 'Asistencias', line_a, rival_opcion, "Asistencias")
-            ok_3, tipo_3, _, msg_3 = analizar_racha_contra_rival(df_display, 'Triples', line_3, rival_opcion, "Triples")
-            ok_s, tipo_s, _, msg_s = analizar_racha_contra_rival(df_display, 'Robos', line_s, rival_opcion, "Robos")
-            ok_b, tipo_b, _, msg_b = analizar_racha_contra_rival(df_display, 'Bloqueos', line_b, rival_opcion, "Bloqueos")
+            res_p = analizar_racha_contra_rival(df_display, 'Puntos', line_p, rival_opcion, "Puntos")
+            res_r = analizar_racha_contra_rival(df_display, 'Rebotes', line_r, rival_opcion, "Rebotes")
+            res_a = analizar_racha_contra_rival(df_display, 'Asistencias', line_a, rival_opcion, "Asistencias")
+            res_3 = analizar_racha_contra_rival(df_display, 'Triples', line_3, rival_opcion, "Triples")
+            res_s = analizar_racha_contra_rival(df_display, 'Robos', line_s, rival_opcion, "Robos")
+            res_b = analizar_racha_contra_rival(df_display, 'Bloqueos', line_b, rival_opcion, "Bloqueos")
             
-            mensajes_activos = [m for ok, m in [(ok_p, msg_p), (ok_r, msg_r), (ok_a, msg_a), (ok_3, msg_3), (ok_s, msg_s), (ok_b, msg_b)] if ok]
+            mensajes_activos = [r[4] for r in [res_p, res_r, res_a, res_3, res_s, res_b] if r[0]]
             
             if mensajes_activos:
                 st.success("¡Se encontraron mercados que cumplen con el filtro estricto (4/5 o 5/5)! 👇")
@@ -676,39 +675,14 @@ with tabs[3]:
                 st.warning("⚠️ Este jugador no tiene ningún mercado que cumpla con el criterio estricto de 4/5 o 5/5 partidos en su racha L5.")
             
             col_s1, col_s2, col_s3, col_s4, col_s5, col_s6 = st.columns(6)
-            with col_s1:
-                if ok_p and st.button(f"➕ {tipo_p} {line_p} PTS", key=f"b_pts_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo_p} {line_p} Puntos vs {rival_opcion}"}
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.success("¡Agregado!")
-            with col_s2:
-                if ok_r and st.button(f"➕ {tipo_r} {line_r} REB", key=f"b_reb_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo_r} {line_r} Rebotes vs {rival_opcion}"}
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.success("¡Agregado!")
-            with col_s3:
-                if ok_a and st.button(f"➕ {tipo_a} {line_a} AST", key=f"b_ast_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo_a} {line_a} Asistencias vs {rival_opcion}"}
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.success("¡Agregado!")
-            with col_s4:
-                if ok_3 and st.button(f"➕ {tipo_3} {line_3} 3P", key=f"b_3p_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo_3} {line_3} Triples vs {rival_opcion}"}
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.success("¡Agregado!")
-            with col_s5:
-                if ok_s and st.button(f"➕ {tipo_s} {line_s} STL", key=f"b_stl_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo_s} {line_s} Robos vs {rival_opcion}"}
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.success("¡Agregado!")
-            with col_s6:
-                if ok_b and st.button(f"➕ {tipo_b} {line_b} BLK", key=f"b_blk_{selected_player}"):
-                    item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo_b} {line_b} Bloqueos vs {rival_opcion}"}
-                    if item not in st.session_state.my_ticket:
-                        st.session_state.my_ticket.append(item)
-                        st.success("¡Agregado!")
+            for idx_col, (ok, racha, tipo, _, _) in enumerate([res_p, res_r, res_a, res_3, res_s, res_b]):
+                if ok:
+                    stat_nombre = ["Puntos", "Rebotes", "Asistencias", "Triples", "Robos", "Bloqueos"][idx_col]
+                    linea_val = [line_p, line_r, line_a, line_3, line_s, line_b][idx_col]
+                    badge = "🟢 5/5" if racha == 5 else "🟡 4/5"
+                    with [col_s1, col_s2, col_s3, col_s4, col_s5, col_s6][idx_col]:
+                        if st.button(f"➕ {badge} {tipo} {linea_val} {stat_nombre}", key=f"b_{stat_nombre}_{selected_player}"):
+                            item = {'Jugador': selected_player, 'Equipo': selected_sheet_name, 'Pick': f"{tipo} {linea_val} {stat_nombre} vs {rival_opcion}"}
+                            if item not in st.session_state.my_ticket:
+                                st.session_state.my_ticket.append(item)
+                                st.success("¡Agregado!")
